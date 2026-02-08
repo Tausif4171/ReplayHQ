@@ -1,0 +1,212 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [pgvector(map: "vector")]
+}
+
+enum Role {
+  ADMIN
+  UPLOADER
+  VIEWER
+}
+
+enum RecordingStatus {
+  UPLOADING
+  PROCESSING
+  READY
+  FAILED
+}
+
+model User {
+  id            String         @id @default(cuid())
+  name          String?
+  email         String         @unique
+  emailVerified DateTime?
+  image         String?
+  role          Role           @default(VIEWER)
+  accounts      Account[]
+  sessions      Session[]
+  recordings    Recording[]    @relation("presenter")
+  uploads       Recording[]    @relation("uploader")
+  watchHistory  WatchHistory[]
+  comments      Comment[]
+  bookmarks     Bookmark[]
+  playlists     Playlist[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+}
+
+model Account {
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([provider, providerAccountId])
+}
+
+model Session {
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@id([identifier, token])
+}
+
+model Series {
+  id          String      @id @default(cuid())
+  name        String
+  description String?
+  coverImage  String?
+  recordings  Recording[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+}
+
+model Recording {
+  id            String          @id @default(cuid())
+  title         String
+  description   String?
+  duration      Int?            // duration in seconds
+  videoUrl      String          // MinIO object path
+  thumbnailUrl  String?         // MinIO object path
+  status        RecordingStatus @default(UPLOADING)
+  transcript    String?         @db.Text
+  summary       String?         @db.Text
+  keyTakeaways  String?         @db.Text
+  actionItems   String?         @db.Text
+  presenterId   String?
+  presenter     User?           @relation("presenter", fields: [presenterId], references: [id])
+  uploadedById  String
+  uploadedBy    User            @relation("uploader", fields: [uploadedById], references: [id])
+  seriesId      String?
+  series        Series?         @relation(fields: [seriesId], references: [id])
+  tags          Tag[]
+  comments      Comment[]
+  watchHistory  WatchHistory[]
+  bookmarks     Bookmark[]
+  playlistItems PlaylistItem[]
+  embeddings    Embedding[]
+  recordedAt    DateTime?       // when the actual meeting happened
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@index([seriesId])
+  @@index([presenterId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model Tag {
+  id         String      @id @default(cuid())
+  name       String      @unique
+  recordings Recording[]
+}
+
+model WatchHistory {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recordingId String
+  recording   Recording @relation(fields: [recordingId], references: [id], onDelete: Cascade)
+  progress    Int       @default(0) // seconds watched
+  completed   Boolean   @default(false)
+  lastWatchedAt DateTime @default(now())
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([userId, recordingId])
+  @@index([userId])
+  @@index([recordingId])
+}
+
+model Comment {
+  id          String    @id @default(cuid())
+  content     String
+  timestamp   Int?      // video timestamp in seconds (nullable for general comments)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recordingId String
+  recording   Recording @relation(fields: [recordingId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([recordingId])
+  @@index([userId])
+}
+
+model Bookmark {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recordingId String
+  recording   Recording @relation(fields: [recordingId], references: [id], onDelete: Cascade)
+  timestamp   Int?      // optional: bookmark a specific moment
+  note        String?
+  createdAt   DateTime  @default(now())
+
+  @@unique([userId, recordingId, timestamp])
+  @@index([userId])
+}
+
+model Playlist {
+  id          String         @id @default(cuid())
+  name        String
+  description String?
+  coverImage  String?
+  isMandatory Boolean        @default(false)
+  isPublic    Boolean        @default(true)
+  createdById String
+  createdBy   User           @relation(fields: [createdById], references: [id])
+  items       PlaylistItem[]
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+}
+
+model PlaylistItem {
+  id          String    @id @default(cuid())
+  playlistId  String
+  playlist    Playlist  @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  recordingId String
+  recording   Recording @relation(fields: [recordingId], references: [id], onDelete: Cascade)
+  order       Int
+  createdAt   DateTime  @default(now())
+
+  @@unique([playlistId, recordingId])
+  @@index([playlistId])
+}
+
+model Embedding {
+  id          String                       @id @default(cuid())
+  recordingId String
+  recording   Recording                    @relation(fields: [recordingId], references: [id], onDelete: Cascade)
+  chunkText   String                       @db.Text
+  startTime   Int?                         // timestamp in seconds
+  endTime     Int?
+  embedding   Unsupported("vector(1536)")? // OpenAI embedding dimension
+  createdAt   DateTime                     @default(now())
+
+  @@index([recordingId])
+}

@@ -30,7 +30,6 @@ import {
   ChevronUp,
   Search,
   CheckCircle2,
-  Circle,
   Send,
   Sparkles,
   Eye,
@@ -164,13 +163,8 @@ const aiKeyTakeaways = [
   "Bitrot detection via hash verification complements erasure coding for silent corruption scenarios.",
 ];
 
-const aiActionItems = [
-  "Evaluate 4+2 vs 8+4 EC configurations for the new storage cluster rollout.",
-  "Schedule a follow-up session on ISA-L intrinsics and SIMD optimization techniques.",
-  "Review current reconstruction rate SLA thresholds with the SRE team.",
-  "Document the interaction between erasure coding and encryption-at-rest layers.",
-  "Benchmark erasure coding performance on the new ARM-based storage nodes.",
-];
+const aiTldr =
+  "This session covers how MinIO uses Reed-Solomon erasure coding to distribute data across drives for high availability and storage efficiency. Instead of replicating data 3x, erasure coding achieves the same durability at just 1.5x overhead using data and parity shards. The implementation leverages SIMD/ISA-L optimizations for production-grade throughput, with automatic bitrot detection and background healing.";
 
 const aiTopics = [
   "Erasure Coding Fundamentals",
@@ -663,21 +657,14 @@ export default function RecordingDetailPage({
 
                 <Separator />
 
-                {/* Action Items */}
+                {/* TL;DR */}
                 <div>
                   <h3 className="mb-3 text-sm font-semibold text-foreground">
-                    Action Items
+                    TL;DR
                   </h3>
-                  <div className="space-y-2.5">
-                    {aiActionItems.map((item, i) => (
-                      <div key={i} className="flex gap-2.5">
-                        <Circle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/50" />
-                        <p className="text-sm leading-relaxed text-muted-foreground">
-                          {item}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
+                  <p className="text-sm leading-relaxed text-muted-foreground">
+                    {aiTldr}
+                  </p>
                 </div>
 
                 <Separator />
@@ -695,6 +682,46 @@ export default function RecordingDetailPage({
                     ))}
                   </div>
                 </div>
+
+                <Separator />
+
+                {/* Related Recordings */}
+                {recording.series && (
+                  <div>
+                    <h3 className="mb-3 text-sm font-semibold text-foreground">
+                      You Might Also Like
+                    </h3>
+                    <div className="space-y-2">
+                      {mockRecordings
+                        .filter(
+                          (r) =>
+                            r.id !== recording.id &&
+                            (r.series?.id === recording.series?.id ||
+                              r.tags.some((t) => recording.tags.includes(t)))
+                        )
+                        .slice(0, 3)
+                        .map((rec) => (
+                          <Link
+                            key={rec.id}
+                            href={`/recordings/${rec.id}`}
+                            className="flex items-center gap-3 rounded-lg p-2 transition-colors hover:bg-secondary/50"
+                          >
+                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-primary/10">
+                              <Play className="h-3.5 w-3.5 text-primary" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-medium text-foreground">
+                                {rec.title}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {rec.presenter.name} · {formatDuration(rec.duration)}
+                              </p>
+                            </div>
+                          </Link>
+                        ))}
+                    </div>
+                  </div>
+                )}
               </TabsContent>
 
               {/* ── Comments Tab ────────────────────────────────── */}

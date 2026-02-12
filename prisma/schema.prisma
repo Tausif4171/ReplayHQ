@@ -96,7 +96,7 @@ model Recording {
   transcript    String?         @db.Text
   summary       String?         @db.Text
   keyTakeaways  String?         @db.Text
-  actionItems   String?         @db.Text
+  tldr          String?         @db.Text
   presenterId   String?
   presenter     User?           @relation("presenter", fields: [presenterId], references: [id])
   uploadedById  String

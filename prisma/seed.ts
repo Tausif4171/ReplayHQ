@@ -160,11 +160,7 @@ async function main() {
           "Erasure coding is more storage-efficient than replication",
           "Healing happens automatically in the background"
         ]),
-        actionItems: JSON.stringify([
-          "Review current erasure set configuration for production clusters",
-          "Test healing performance under load",
-          "Document shard distribution for team wiki"
-        ]),
+        tldr: "MinIO uses Reed-Solomon erasure coding to distribute data across drives, achieving the same durability as 3x replication at just 1.5x storage overhead. The system leverages SIMD/ISA-L optimizations for fast encoding and automatic background healing for drive failures.",
         recordedAt: daysAgo(2),
         createdAt: daysAgo(2),
       },

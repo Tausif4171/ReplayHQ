@@ -25,7 +25,6 @@ import {
   PictureInPicture2,
   Bookmark,
   Share2,
-  Download,
   ChevronDown,
   ChevronUp,
   Search,
@@ -36,7 +35,6 @@ import {
   Calendar,
   Clock,
   SkipForward,
-  UserPlus,
 } from "lucide-react";
 
 // ─── Mock Transcript Data ────────────────────────────────────────────────────
@@ -205,6 +203,7 @@ export default function RecordingDetailPage({
   const [isMuted, setIsMuted] = useState(false);
   const [showDescription, setShowDescription] = useState(false);
   const [isBookmarked, setIsBookmarked] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   // Transcript search
   const [transcriptSearch, setTranscriptSearch] = useState("");
@@ -493,10 +492,6 @@ export default function RecordingDetailPage({
                     {recording.presenter.role}
                   </p>
                 </div>
-                <Button variant="outline" size="sm" className="ml-2">
-                  <UserPlus className="mr-1 h-3.5 w-3.5" />
-                  Follow
-                </Button>
               </div>
 
               {/* Action buttons */}
@@ -518,13 +513,22 @@ export default function RecordingDetailPage({
                   />
                   {isBookmarked ? "Saved" : "Save"}
                 </Button>
-                <Button variant="ghost" size="sm" className="gap-1.5">
-                  <Share2 className="h-4 w-4" />
-                  Share
-                </Button>
-                <Button variant="ghost" size="sm" className="gap-1.5">
-                  <Download className="h-4 w-4" />
-                  Download
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={() => {
+                    navigator.clipboard.writeText(window.location.href);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2000);
+                  }}
+                >
+                  {copied ? (
+                    <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                  ) : (
+                    <Share2 className="h-4 w-4" />
+                  )}
+                  {copied ? "Copied!" : "Copy link"}
                 </Button>
               </div>
             </div>

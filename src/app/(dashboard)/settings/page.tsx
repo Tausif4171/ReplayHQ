@@ -9,9 +9,6 @@ import {
   Palette,
   Info,
   Camera,
-  ExternalLink,
-  Bug,
-  Lightbulb,
   Sun,
   Moon,
   Monitor,
@@ -276,24 +273,6 @@ export default function SettingsPage() {
                 </p>
               </div>
 
-              <Separator />
-
-              <div className="flex flex-wrap gap-3">
-                <Button variant="outline" size="sm" asChild>
-                  <a href="#" className="inline-flex items-center gap-2">
-                    <Bug className="h-4 w-4" />
-                    Report a Bug
-                    <ExternalLink className="h-3 w-3" />
-                  </a>
-                </Button>
-                <Button variant="outline" size="sm" asChild>
-                  <a href="#" className="inline-flex items-center gap-2">
-                    <Lightbulb className="h-4 w-4" />
-                    Request a Feature
-                    <ExternalLink className="h-3 w-3" />
-                  </a>
-                </Button>
-              </div>
             </div>
           </CardContent>
         </Card>

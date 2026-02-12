@@ -258,24 +258,23 @@ export default function RecordingDetailPage({
     return idx;
   }, [currentTime]);
 
-  // Up-next recordings (exclude current)
-  const upNextRecordings = useMemo(() => {
-    return mockRecordings.filter((r) => r.id !== recording.id).slice(0, 6);
-  }, [recording.id]);
-
-  // Same-series recordings
-  const seriesRecordings = useMemo(() => {
-    if (!recording.series) return [];
+  // Related recordings (same series or shared tags)
+  const relatedRecordings = useMemo(() => {
     return mockRecordings
-      .filter((r) => r.series === recording.series && r.id !== recording.id)
-      .slice(0, 4);
-  }, [recording.series, recording.id]);
+      .filter(
+        (r) =>
+          r.id !== recording.id &&
+          (r.series?.id === recording.series?.id ||
+            r.tags.some((t) => recording.tags.includes(t)))
+      )
+      .slice(0, 6);
+  }, [recording.id, recording.series, recording.tags]);
 
   return (
     <div className="page-enter -mx-4 -mt-6 sm:-mx-6 lg:-mx-8">
       <div className="flex flex-col gap-6 px-4 py-6 sm:px-6 lg:flex-row lg:gap-8 lg:px-8">
         {/* ────────────────────── LEFT COLUMN ────────────────────── */}
-        <div className="min-w-0 flex-1 lg:max-w-[65%]">
+        <div className="min-w-0 flex-1">
           {/* Video Player */}
           <div className="group relative overflow-hidden rounded-xl bg-black/90 shadow-2xl shadow-black/40 ring-1 ring-white/5">
             {/* 16:9 aspect ratio */}
@@ -686,46 +685,6 @@ export default function RecordingDetailPage({
                     ))}
                   </div>
                 </div>
-
-                <Separator />
-
-                {/* Related Recordings */}
-                {recording.series && (
-                  <div>
-                    <h3 className="mb-3 text-sm font-semibold text-foreground">
-                      You Might Also Like
-                    </h3>
-                    <div className="space-y-2">
-                      {mockRecordings
-                        .filter(
-                          (r) =>
-                            r.id !== recording.id &&
-                            (r.series?.id === recording.series?.id ||
-                              r.tags.some((t) => recording.tags.includes(t)))
-                        )
-                        .slice(0, 3)
-                        .map((rec) => (
-                          <Link
-                            key={rec.id}
-                            href={`/recordings/${rec.id}`}
-                            className="flex items-center gap-3 rounded-lg p-2 transition-colors hover:bg-secondary/50"
-                          >
-                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-primary/10">
-                              <Play className="h-3.5 w-3.5 text-primary" />
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-sm font-medium text-foreground">
-                                {rec.title}
-                              </p>
-                              <p className="text-xs text-muted-foreground">
-                                {rec.presenter.name} · {formatDuration(rec.duration)}
-                              </p>
-                            </div>
-                          </Link>
-                        ))}
-                    </div>
-                  </div>
-                )}
               </TabsContent>
 
               {/* ── Comments Tab ────────────────────────────────── */}
@@ -798,99 +757,47 @@ export default function RecordingDetailPage({
         </div>
 
         {/* ────────────────────── RIGHT COLUMN (Sidebar) ────────── */}
-        <div className="w-full shrink-0 space-y-6 lg:w-[35%] lg:max-w-sm">
-          {/* Up Next */}
-          <div>
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-              Up Next
-            </h2>
-            <div className="space-y-2">
-              {upNextRecordings.map((rec) => (
-                <Link
-                  key={rec.id}
-                  href={`/recordings/${rec.id}`}
-                  className={cn(
-                    "group/card flex gap-3 rounded-lg p-2 transition-colors",
-                    "hover:bg-secondary/60"
-                  )}
-                >
-                  {/* Small thumbnail */}
-                  <div className="relative h-20 w-36 shrink-0 overflow-hidden rounded-md bg-gradient-to-br from-primary/20 via-background to-primary/5 ring-1 ring-white/5">
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <Play className="h-5 w-5 text-white/40 transition-colors group-hover/card:text-primary" />
-                    </div>
-                    {/* Duration badge */}
-                    <div className="absolute bottom-1 right-1 rounded bg-black/70 px-1 py-0.5 text-[10px] font-medium tabular-nums text-white/80">
-                      {formatDuration(rec.duration)}
-                    </div>
-                  </div>
-
-                  {/* Info */}
-                  <div className="min-w-0 flex-1 py-0.5">
-                    <p className="line-clamp-2 text-sm font-medium leading-snug text-foreground transition-colors group-hover/card:text-primary">
-                      {rec.title}
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {rec.presenter.name}
-                    </p>
-                    <p className="mt-0.5 text-xs text-muted-foreground/60">
-                      {formatViews(rec.views)} views &#183;{" "}
-                      {formatRelativeDate(rec.createdAt)}
-                    </p>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          </div>
-
-          {/* From this series */}
-          {recording.series && seriesRecordings.length > 0 && (
-            <div>
-              <Separator className="mb-6" />
-              <div className="mb-3 flex items-center justify-between">
-                <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-                  From &quot;{recording.series.name}&quot;
+        <div className="w-full shrink-0 lg:w-[320px]">
+          <div className="sticky top-6 space-y-6">
+            {/* Related Recordings */}
+            {relatedRecordings.length > 0 && (
+              <div>
+                <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+                  Related Recordings
                 </h2>
-                <span className="text-xs text-muted-foreground/60">
-                  {seriesRecordings.length} more
-                </span>
-              </div>
-              <div className="space-y-2">
-                {seriesRecordings.map((rec) => (
-                  <Link
-                    key={rec.id}
-                    href={`/recordings/${rec.id}`}
-                    className={cn(
-                      "group/card flex gap-3 rounded-lg p-2 transition-colors",
-                      "hover:bg-secondary/60"
-                    )}
-                  >
-                    {/* Small thumbnail */}
-                    <div className="relative h-20 w-36 shrink-0 overflow-hidden rounded-md bg-gradient-to-br from-primary/25 via-background to-primary/10 ring-1 ring-white/5">
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <Play className="h-5 w-5 text-white/40 transition-colors group-hover/card:text-primary" />
+                <div className="space-y-2">
+                  {relatedRecordings.map((rec) => (
+                    <Link
+                      key={rec.id}
+                      href={`/recordings/${rec.id}`}
+                      className="group/card flex gap-3 rounded-lg p-2 transition-colors hover:bg-secondary/60"
+                    >
+                      <div className="relative h-20 w-36 shrink-0 overflow-hidden rounded-md bg-gradient-to-br from-primary/20 via-background to-primary/5 ring-1 ring-white/5">
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <Play className="h-5 w-5 text-white/40 transition-colors group-hover/card:text-primary" />
+                        </div>
+                        <div className="absolute bottom-1 right-1 rounded bg-black/70 px-1 py-0.5 text-[10px] font-medium tabular-nums text-white/80">
+                          {formatDuration(rec.duration)}
+                        </div>
                       </div>
-                      <div className="absolute bottom-1 right-1 rounded bg-black/70 px-1 py-0.5 text-[10px] font-medium tabular-nums text-white/80">
-                        {formatDuration(rec.duration)}
+                      <div className="min-w-0 flex-1 py-0.5">
+                        <p className="line-clamp-2 text-sm font-medium leading-snug text-foreground transition-colors group-hover/card:text-primary">
+                          {rec.title}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {rec.presenter.name}
+                        </p>
+                        <p className="mt-0.5 text-xs text-muted-foreground/60">
+                          {formatViews(rec.views)} views &#183;{" "}
+                          {formatRelativeDate(rec.createdAt)}
+                        </p>
                       </div>
-                    </div>
-                    <div className="min-w-0 flex-1 py-0.5">
-                      <p className="line-clamp-2 text-sm font-medium leading-snug text-foreground transition-colors group-hover/card:text-primary">
-                        {rec.title}
-                      </p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {rec.presenter.name}
-                      </p>
-                      <p className="mt-0.5 text-xs text-muted-foreground/60">
-                        {formatViews(rec.views)} views &#183;{" "}
-                        {formatRelativeDate(rec.createdAt)}
-                      </p>
-                    </div>
-                  </Link>
-                ))}
+                    </Link>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
     </div>

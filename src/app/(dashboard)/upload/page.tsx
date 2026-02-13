@@ -18,6 +18,7 @@ import {
   FileText,
   ArrowRight,
   ArrowLeft,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -73,6 +74,12 @@ function stripExtension(filename: string): string {
 
 function todayISO(): string {
   return new Date().toISOString().split("T")[0];
+}
+
+function formatTimestamp(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
 /* ------------------------------------------------------------------ */
@@ -248,12 +255,22 @@ export default function UploadPage() {
   const [publishError, setPublishError] = useState<string | null>(null);
   const [objectKey, setObjectKey] = useState<string | null>(null);
   const [thumbnailKey, setThumbnailKey] = useState<string | null>(null);
+  const [thumbnailCandidates, setThumbnailCandidates] = useState<
+    { blobUrl: string; timestamp: number }[]
+  >([]);
+  const [selectedThumbIndex, setSelectedThumbIndex] = useState(0);
+  const [customThumbnail, setCustomThumbnail] = useState<{
+    file: File;
+    previewUrl: string;
+  } | null>(null);
+  const [useCustomThumb, setUseCustomThumb] = useState(false);
   const [videoDuration, setVideoDuration] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
   const [seriesOptions, setSeriesOptions] = useState<SeriesOption[]>([]);
 
   const tagInputRef = useRef<HTMLInputElement>(null);
+  const thumbInputRef = useRef<HTMLInputElement>(null);
   const xhrRef = useRef<XMLHttpRequest | null>(null);
 
   /* ---- Real upload to MinIO ---- */
@@ -328,7 +345,12 @@ export default function UploadPage() {
     };
   }, [file, isUploaded, objectKey]);
 
-  /* ---- Extract duration & thumbnail from video after upload ---- */
+  /* ---- Extract duration & best 3 thumbnail candidates from video ---- */
+  /*
+   * Strategy: divide the video into 3 equal segments (early / middle / late).
+   * Sample 4 frames per segment, score each for quality, and pick the best
+   * frame from each segment. This guarantees 3 visually distinct thumbnails.
+   */
   useEffect(() => {
     if (!file || !isUploaded) return;
 
@@ -339,54 +361,183 @@ export default function UploadPage() {
     video.muted = true;
     video.playsInline = true;
 
+    const SAMPLES_PER_SEGMENT = 4;
+    const SEGMENT_COUNT = 3;
+    let seekIndex = 0;
+    let samplePoints: number[] = [];
+    // Each sample knows which segment (0/1/2) it belongs to
+    const scored: {
+      blobUrl: string;
+      timestamp: number;
+      score: number;
+      segment: number;
+    }[] = [];
+
+    const canvas = document.createElement("canvas");
+
+    function scoreFrame(
+      ctx: CanvasRenderingContext2D,
+      w: number,
+      h: number
+    ): number {
+      const { data } = ctx.getImageData(0, 0, w, h);
+      const pixelCount = w * h;
+
+      // Build grayscale + compute average color channels for variety scoring
+      let lumSum = 0;
+      let lumSq = 0;
+      let rSum = 0;
+      let gSum = 0;
+      let bSum = 0;
+
+      const gray = new Float32Array(pixelCount);
+      for (let i = 0; i < pixelCount; i++) {
+        const r = data[i * 4];
+        const g = data[i * 4 + 1];
+        const b = data[i * 4 + 2];
+        const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+        gray[i] = lum;
+        lumSum += lum;
+        lumSq += lum * lum;
+        rSum += r;
+        gSum += g;
+        bSum += b;
+      }
+
+      const lumMean = lumSum / pixelCount;
+
+      // Contrast: luminance standard deviation
+      const contrast = Math.sqrt(lumSq / pixelCount - lumMean * lumMean);
+
+      // Color saturation: how much the avg color deviates from gray
+      const rMean = rSum / pixelCount;
+      const gMean = gSum / pixelCount;
+      const bMean = bSum / pixelCount;
+      const saturation = Math.sqrt(
+        (rMean - lumMean) ** 2 +
+          (gMean - lumMean) ** 2 +
+          (bMean - lumMean) ** 2
+      );
+
+      // Sharpness: Laplacian variance (sample every other pixel for speed)
+      let lapSq = 0;
+      let lapCount = 0;
+      for (let y = 1; y < h - 1; y += 2) {
+        for (let x = 1; x < w - 1; x += 2) {
+          const idx = y * w + x;
+          const lap =
+            gray[idx - w] +
+            gray[idx + w] +
+            gray[idx - 1] +
+            gray[idx + 1] -
+            4 * gray[idx];
+          lapSq += lap * lap;
+          lapCount++;
+        }
+      }
+      const sharpness = lapSq / lapCount;
+
+      // Penalize very dark or very bright (likely blank/transition frames)
+      const brightnessPenalty =
+        lumMean < 25 || lumMean > 235 ? 0.2 : lumMean < 50 || lumMean > 210 ? 0.6 : 1;
+
+      // Penalize very low contrast (likely solid-color or near-blank)
+      const contrastPenalty = contrast < 15 ? 0.3 : 1;
+
+      return (
+        (sharpness * 0.5 + contrast * 0.3 + saturation * 0.2) *
+        brightnessPenalty *
+        contrastPenalty
+      );
+    }
+
+    function captureFrame(): {
+      blobUrl: string;
+      score: number;
+    } | null {
+      // Score at small size for speed
+      const scoreW = Math.min(video.videoWidth, 160);
+      const scoreH = Math.round(scoreW * (video.videoHeight / video.videoWidth));
+      canvas.width = scoreW;
+      canvas.height = scoreH;
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      if (!ctx) return null;
+      ctx.drawImage(video, 0, 0, scoreW, scoreH);
+      const score = scoreFrame(ctx, scoreW, scoreH);
+
+      // Capture full-size thumbnail
+      const thumbW = Math.min(video.videoWidth, 640);
+      const thumbH = Math.round(thumbW * (video.videoHeight / video.videoWidth));
+      canvas.width = thumbW;
+      canvas.height = thumbH;
+      ctx.drawImage(video, 0, 0, thumbW, thumbH);
+
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+      const byteStr = atob(dataUrl.split(",")[1]);
+      const ab = new ArrayBuffer(byteStr.length);
+      const ia = new Uint8Array(ab);
+      for (let i = 0; i < byteStr.length; i++) ia[i] = byteStr.charCodeAt(i);
+      const blob = new Blob([ab], { type: "image/jpeg" });
+
+      return { blobUrl: URL.createObjectURL(blob), score };
+    }
+
     video.addEventListener("loadedmetadata", () => {
       if (cancelled) return;
-      setVideoDuration(Math.round(video.duration));
+      const dur = video.duration;
+      setVideoDuration(Math.round(dur));
 
-      // Seek to 25% of the video for a good thumbnail frame
-      video.currentTime = Math.min(video.duration * 0.25, 5);
+      // Build sample points: 4 per segment, 3 segments
+      const margin = dur * 0.05; // skip first/last 5%
+      const usable = dur - 2 * margin;
+      const segLen = usable / SEGMENT_COUNT;
+
+      samplePoints = [];
+      for (let seg = 0; seg < SEGMENT_COUNT; seg++) {
+        const segStart = margin + seg * segLen;
+        const step = segLen / (SAMPLES_PER_SEGMENT + 1);
+        for (let s = 1; s <= SAMPLES_PER_SEGMENT; s++) {
+          samplePoints.push(segStart + step * s);
+        }
+      }
+
+      video.currentTime = samplePoints[0];
     });
 
-    video.addEventListener("seeked", async () => {
+    video.addEventListener("seeked", () => {
       if (cancelled) return;
 
-      // Capture thumbnail via canvas
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.min(video.videoWidth, 640);
-      canvas.height = Math.round(canvas.width * (video.videoHeight / video.videoWidth));
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-      try {
-        const blob = await new Promise<Blob | null>((resolve) =>
-          canvas.toBlob(resolve, "image/jpeg", 0.8)
-        );
-        if (!blob || cancelled) return;
-
-        // Upload thumbnail to MinIO
-        const res = await fetch("/api/upload", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ filename: "thumbnail.jpg" }),
+      const segment = Math.floor(seekIndex / SAMPLES_PER_SEGMENT);
+      const result = captureFrame();
+      if (result) {
+        scored.push({
+          ...result,
+          timestamp: Math.round(video.currentTime),
+          segment,
         });
-        if (!res.ok) return;
+      }
 
-        const { presignedUrl, objectKey: thumbKey } = await res.json();
-        if (cancelled) return;
-
-        const putRes = await fetch(presignedUrl, {
-          method: "PUT",
-          headers: { "Content-Type": "image/jpeg" },
-          body: blob,
-        });
-
-        if (putRes.ok && !cancelled) {
-          setThumbnailKey(thumbKey);
+      seekIndex++;
+      if (seekIndex < samplePoints.length) {
+        video.currentTime = samplePoints[seekIndex];
+      } else {
+        // Pick the best frame from each segment
+        const winners: typeof scored = [];
+        for (let seg = 0; seg < SEGMENT_COUNT; seg++) {
+          const segFrames = scored.filter((f) => f.segment === seg);
+          if (segFrames.length === 0) continue;
+          segFrames.sort((a, b) => b.score - a.score);
+          winners.push(segFrames[0]);
+          // Free unused blobs from this segment
+          segFrames.slice(1).forEach((f) => URL.revokeObjectURL(f.blobUrl));
         }
-      } catch {
-        // Thumbnail generation is best-effort
-      } finally {
+
+        if (!cancelled) {
+          setThumbnailCandidates(
+            winners.map(({ blobUrl, timestamp }) => ({ blobUrl, timestamp }))
+          );
+          setSelectedThumbIndex(0);
+        }
         URL.revokeObjectURL(objectUrl);
         video.remove();
       }
@@ -470,6 +621,24 @@ export default function UploadPage() {
     setTitle("");
   };
 
+  /* ---- Custom thumbnail upload ---- */
+  const handleCustomThumbUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    // Revoke previous custom preview
+    if (customThumbnail) URL.revokeObjectURL(customThumbnail.previewUrl);
+    setCustomThumbnail({ file: f, previewUrl: URL.createObjectURL(f) });
+    setUseCustomThumb(true);
+    // Reset file input so the same file can be re-selected
+    e.target.value = "";
+  };
+
+  const removeCustomThumb = () => {
+    if (customThumbnail) URL.revokeObjectURL(customThumbnail.previewUrl);
+    setCustomThumbnail(null);
+    setUseCustomThumb(false);
+  };
+
   /* ---- Navigation ---- */
   const goNext = () =>
     setCurrentStep((prev) => Math.min(prev + 1, 4) as 1 | 2 | 3);
@@ -482,6 +651,52 @@ export default function UploadPage() {
     setPublishError(null);
 
     try {
+      // Upload selected thumbnail to MinIO
+      let uploadedThumbKey = thumbnailKey;
+      if (!uploadedThumbKey) {
+        try {
+          let thumbBlob: Blob | null = null;
+          let thumbFilename = "thumbnail.jpg";
+
+          if (useCustomThumb && customThumbnail) {
+            // User uploaded a custom thumbnail
+            thumbBlob = customThumbnail.file;
+            thumbFilename = customThumbnail.file.name;
+          } else if (thumbnailCandidates.length > 0) {
+            // Use the selected auto-generated thumbnail
+            const selected = thumbnailCandidates[selectedThumbIndex];
+            if (selected) {
+              const blobRes = await fetch(selected.blobUrl);
+              thumbBlob = await blobRes.blob();
+            }
+          }
+
+          if (thumbBlob) {
+            const uploadRes = await fetch("/api/upload", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ filename: thumbFilename }),
+            });
+
+            if (uploadRes.ok) {
+              const { presignedUrl, objectKey: thumbKey } =
+                await uploadRes.json();
+              const putRes = await fetch(presignedUrl, {
+                method: "PUT",
+                headers: { "Content-Type": thumbBlob.type || "image/jpeg" },
+                body: thumbBlob,
+              });
+              if (putRes.ok) {
+                uploadedThumbKey = thumbKey;
+                setThumbnailKey(thumbKey);
+              }
+            }
+          }
+        } catch {
+          // Thumbnail upload is best-effort
+        }
+      }
+
       const res = await fetch("/api/recordings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -489,7 +704,7 @@ export default function UploadPage() {
           title: title.trim(),
           description: description.trim() || undefined,
           videoUrl: objectKey || "pending-upload",
-          thumbnailUrl: thumbnailKey || undefined,
+          thumbnailUrl: uploadedThumbKey || undefined,
           duration: videoDuration,
           seriesId: series || undefined,
           tags,
@@ -522,12 +737,20 @@ export default function UploadPage() {
 
   /* ---- Reset for "Upload Another" ---- */
   const resetAll = () => {
+    // Revoke blob URLs to free memory
+    thumbnailCandidates.forEach((c) => URL.revokeObjectURL(c.blobUrl));
+    if (customThumbnail) URL.revokeObjectURL(customThumbnail.previewUrl);
+
     setCurrentStep(1);
     setFile(null);
     setUploadProgress(0);
     setIsUploaded(false);
     setObjectKey(null);
     setThumbnailKey(null);
+    setThumbnailCandidates([]);
+    setSelectedThumbIndex(0);
+    setCustomThumbnail(null);
+    setUseCustomThumb(false);
     setVideoDuration(0);
     setUploadError(null);
     setTitle("");
@@ -842,6 +1065,120 @@ export default function UploadPage() {
               </div>
             </div>
 
+            {/* Thumbnail Picker */}
+            <div className="space-y-3">
+              <div>
+                <label className="text-sm font-medium leading-none">
+                  Thumbnail
+                </label>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Choose from auto-generated options or upload your own
+                </p>
+              </div>
+
+              {/* Hidden file input for custom thumbnail */}
+              <input
+                ref={thumbInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                onChange={handleCustomThumbUpload}
+              />
+
+              {/* Auto-generated candidates + upload option */}
+              <div className="grid grid-cols-4 gap-3">
+                {thumbnailCandidates.length === 0
+                  ? /* Loading skeletons */
+                    [0, 1, 2].map((i) => (
+                      <div
+                        key={i}
+                        className="flex aspect-video items-center justify-center rounded-lg border-2 border-dashed border-border bg-muted/50"
+                      >
+                        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                      </div>
+                    ))
+                  : /* Generated thumbnails */
+                    thumbnailCandidates.map((candidate, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => {
+                          setSelectedThumbIndex(idx);
+                          setUseCustomThumb(false);
+                        }}
+                        className={cn(
+                          "group/thumb relative aspect-video overflow-hidden rounded-lg border-2 transition-all duration-200",
+                          !useCustomThumb && selectedThumbIndex === idx
+                            ? "border-primary ring-2 ring-primary/20 shadow-md"
+                            : "border-border hover:border-muted-foreground/50"
+                        )}
+                      >
+                        <img
+                          src={candidate.blobUrl}
+                          alt={`Thumbnail option ${idx + 1}`}
+                          className="h-full w-full object-cover"
+                        />
+                        <div className="absolute bottom-1 right-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-white">
+                          {formatTimestamp(candidate.timestamp)}
+                        </div>
+                        {!useCustomThumb && selectedThumbIndex === idx && (
+                          <div className="absolute top-1.5 left-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-white">
+                            <Check className="h-3 w-3" />
+                          </div>
+                        )}
+                      </button>
+                    ))}
+
+                {/* Custom upload card */}
+                {customThumbnail ? (
+                  <button
+                    type="button"
+                    onClick={() => setUseCustomThumb(true)}
+                    className={cn(
+                      "group/thumb relative aspect-video overflow-hidden rounded-lg border-2 transition-all duration-200",
+                      useCustomThumb
+                        ? "border-primary ring-2 ring-primary/20 shadow-md"
+                        : "border-border hover:border-muted-foreground/50"
+                    )}
+                  >
+                    <img
+                      src={customThumbnail.previewUrl}
+                      alt="Custom thumbnail"
+                      className="h-full w-full object-cover"
+                    />
+                    <div className="absolute bottom-1 right-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                      Custom
+                    </div>
+                    {useCustomThumb && (
+                      <div className="absolute top-1.5 left-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-white">
+                        <Check className="h-3 w-3" />
+                      </div>
+                    )}
+                    {/* Remove / replace button */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removeCustomThumb();
+                      }}
+                      className="absolute top-1.5 right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition-opacity group-hover/thumb:opacity-100"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => thumbInputRef.current?.click()}
+                    className="flex aspect-video flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-dashed border-border bg-muted/30 text-muted-foreground transition-all duration-200 hover:border-primary/50 hover:bg-primary/5 hover:text-primary"
+                  >
+                    <UploadCloud className="h-5 w-5" />
+                    <span className="text-[10px] font-medium">Upload</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
             {/* Recording Date */}
             <div className="space-y-2">
               <label
@@ -935,6 +1272,35 @@ export default function UploadPage() {
                   </div>
                 </div>
               )}
+
+              {/* Selected thumbnail preview */}
+              {(useCustomThumb && customThumbnail) ||
+              thumbnailCandidates.length > 0 ? (
+                <>
+                  <Separator />
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                      Thumbnail
+                    </p>
+                    <div className="w-48 overflow-hidden rounded-lg border border-border">
+                      <img
+                        src={
+                          useCustomThumb && customThumbnail
+                            ? customThumbnail.previewUrl
+                            : thumbnailCandidates[selectedThumbIndex]?.blobUrl
+                        }
+                        alt="Selected thumbnail"
+                        className="aspect-video w-full object-cover"
+                      />
+                    </div>
+                    {useCustomThumb && (
+                      <p className="text-[11px] text-muted-foreground">
+                        Custom upload
+                      </p>
+                    )}
+                  </div>
+                </>
+              ) : null}
 
               <Separator />
 

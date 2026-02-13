@@ -551,9 +551,11 @@ export default function UploadPage() {
     };
   }, [file, isUploaded]);
 
-  /* ---- Auto-advance to step 2 when upload completes ---- */
+  /* ---- Auto-advance to step 2 once (only on first upload completion) ---- */
+  const hasAutoAdvanced = useRef(false);
   useEffect(() => {
-    if (isUploaded && currentStep === 1) {
+    if (isUploaded && currentStep === 1 && !hasAutoAdvanced.current) {
+      hasAutoAdvanced.current = true;
       const timeout = setTimeout(() => setCurrentStep(2), 600);
       return () => clearTimeout(timeout);
     }
@@ -741,6 +743,7 @@ export default function UploadPage() {
     thumbnailCandidates.forEach((c) => URL.revokeObjectURL(c.blobUrl));
     if (customThumbnail) URL.revokeObjectURL(customThumbnail.previewUrl);
 
+    hasAutoAdvanced.current = false;
     setCurrentStep(1);
     setFile(null);
     setUploadProgress(0);

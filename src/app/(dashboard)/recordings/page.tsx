@@ -51,7 +51,7 @@ function mapApiRecording(apiRec: any): Recording {
     title: apiRec.title,
     description: apiRec.description || "",
     duration: apiRec.duration || 0,
-    thumbnailUrl: "",
+    thumbnailUrl: apiRec.thumbnailUrl || "",
     presenter: {
       id: apiRec.presenter?.id || "",
       name: apiRec.presenter?.name || "Unknown",

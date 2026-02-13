@@ -74,21 +74,27 @@ export default function RecordingCard({
         {/* Thumbnail                                                        */}
         {/* ---------------------------------------------------------------- */}
         <div className="relative aspect-video w-full overflow-hidden">
-          {/* Gradient placeholder background */}
-          <div
-            className={cn(
-              "absolute inset-0 bg-gradient-to-br opacity-80",
-              gradient
-            )}
-          />
-
-          {/* Subtle noise/pattern overlay */}
-          <div className="absolute inset-0 bg-black/10" />
-
-          {/* Centered decorative icon for visual interest */}
-          <div className="absolute inset-0 flex items-center justify-center">
-            <Play className="h-8 w-8 text-white/20" />
-          </div>
+          {/* Thumbnail image or gradient fallback */}
+          {recording.thumbnailUrl ? (
+            <img
+              src={`/api/media?key=${encodeURIComponent(recording.thumbnailUrl)}`}
+              alt={recording.title}
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+          ) : (
+            <>
+              <div
+                className={cn(
+                  "absolute inset-0 bg-gradient-to-br opacity-80",
+                  gradient
+                )}
+              />
+              <div className="absolute inset-0 bg-black/10" />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <Play className="h-8 w-8 text-white/20" />
+              </div>
+            </>
+          )}
 
           {/* Play button overlay on hover */}
           <div className="absolute inset-0 flex items-center justify-center bg-black/0 transition-all duration-300 group-hover:bg-black/30">
@@ -212,13 +218,23 @@ function RecordingListItem({
       >
         {/* Thumbnail */}
         <div className="relative aspect-video w-48 shrink-0 overflow-hidden rounded-lg">
-          <div
-            className={cn(
-              "absolute inset-0 bg-gradient-to-br opacity-80",
-              gradient
-            )}
-          />
-          <div className="absolute inset-0 bg-black/10" />
+          {recording.thumbnailUrl ? (
+            <img
+              src={`/api/media?key=${encodeURIComponent(recording.thumbnailUrl)}`}
+              alt={recording.title}
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+          ) : (
+            <>
+              <div
+                className={cn(
+                  "absolute inset-0 bg-gradient-to-br opacity-80",
+                  gradient
+                )}
+              />
+              <div className="absolute inset-0 bg-black/10" />
+            </>
+          )}
           <div className="absolute inset-0 flex items-center justify-center">
             {isProcessing ? (
               <div className="flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-[10px] font-medium text-white">

@@ -34,6 +34,7 @@ interface ApiRecording {
   description: string | null;
   duration: number;
   videoUrl: string;
+  thumbnailUrl: string | null;
   status: string;
   createdAt: string;
   presenter: {
@@ -67,7 +68,7 @@ function mapApiRecording(api: ApiRecording): Recording {
     title: api.title,
     description: api.description || "",
     duration: api.duration,
-    thumbnailUrl: "",
+    thumbnailUrl: api.thumbnailUrl || "",
     presenter: {
       id: api.presenter.id,
       name: api.presenter.name,

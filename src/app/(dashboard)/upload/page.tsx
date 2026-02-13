@@ -247,6 +247,8 @@ export default function UploadPage() {
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
   const [objectKey, setObjectKey] = useState<string | null>(null);
+  const [thumbnailKey, setThumbnailKey] = useState<string | null>(null);
+  const [videoDuration, setVideoDuration] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
   const [seriesOptions, setSeriesOptions] = useState<SeriesOption[]>([]);
@@ -325,6 +327,78 @@ export default function UploadPage() {
       xhrRef.current?.abort();
     };
   }, [file, isUploaded, objectKey]);
+
+  /* ---- Extract duration & thumbnail from video after upload ---- */
+  useEffect(() => {
+    if (!file || !isUploaded) return;
+
+    let cancelled = false;
+    const objectUrl = URL.createObjectURL(file);
+    const video = document.createElement("video");
+    video.preload = "metadata";
+    video.muted = true;
+    video.playsInline = true;
+
+    video.addEventListener("loadedmetadata", () => {
+      if (cancelled) return;
+      setVideoDuration(Math.round(video.duration));
+
+      // Seek to 25% of the video for a good thumbnail frame
+      video.currentTime = Math.min(video.duration * 0.25, 5);
+    });
+
+    video.addEventListener("seeked", async () => {
+      if (cancelled) return;
+
+      // Capture thumbnail via canvas
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.min(video.videoWidth, 640);
+      canvas.height = Math.round(canvas.width * (video.videoHeight / video.videoWidth));
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      try {
+        const blob = await new Promise<Blob | null>((resolve) =>
+          canvas.toBlob(resolve, "image/jpeg", 0.8)
+        );
+        if (!blob || cancelled) return;
+
+        // Upload thumbnail to MinIO
+        const res = await fetch("/api/upload", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ filename: "thumbnail.jpg" }),
+        });
+        if (!res.ok) return;
+
+        const { presignedUrl, objectKey: thumbKey } = await res.json();
+        if (cancelled) return;
+
+        const putRes = await fetch(presignedUrl, {
+          method: "PUT",
+          headers: { "Content-Type": "image/jpeg" },
+          body: blob,
+        });
+
+        if (putRes.ok && !cancelled) {
+          setThumbnailKey(thumbKey);
+        }
+      } catch {
+        // Thumbnail generation is best-effort
+      } finally {
+        URL.revokeObjectURL(objectUrl);
+        video.remove();
+      }
+    });
+
+    video.src = objectUrl;
+
+    return () => {
+      cancelled = true;
+      URL.revokeObjectURL(objectUrl);
+    };
+  }, [file, isUploaded]);
 
   /* ---- Auto-advance to step 2 when upload completes ---- */
   useEffect(() => {
@@ -415,7 +489,8 @@ export default function UploadPage() {
           title: title.trim(),
           description: description.trim() || undefined,
           videoUrl: objectKey || "pending-upload",
-          duration: 0,
+          thumbnailUrl: thumbnailKey || undefined,
+          duration: videoDuration,
           seriesId: series || undefined,
           tags,
         }),
@@ -452,6 +527,8 @@ export default function UploadPage() {
     setUploadProgress(0);
     setIsUploaded(false);
     setObjectKey(null);
+    setThumbnailKey(null);
+    setVideoDuration(0);
     setUploadError(null);
     setTitle("");
     setDescription("");

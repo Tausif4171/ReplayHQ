@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json();
-  const { title, description, seriesId, tags, videoUrl, duration } = body;
+  const { title, description, seriesId, tags, videoUrl, duration, thumbnailUrl } = body;
 
   if (!title || !videoUrl) {
     return NextResponse.json(
@@ -83,8 +83,9 @@ export async function POST(request: NextRequest) {
         title,
         description,
         videoUrl,
+        thumbnailUrl: thumbnailUrl || undefined,
         duration,
-        status: "PROCESSING",
+        status: "READY",
         uploadedById: session.user.id,
         presenterId: session.user.id,
         seriesId: seriesId || undefined,

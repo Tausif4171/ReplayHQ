@@ -1,8 +1,17 @@
 "use client";
 
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useSession, signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
-import { Menu, Search, Bell } from "lucide-react";
+import { Menu, Search, Bell, LogOut, Settings, ChevronDown } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const pageTitles: Record<string, string> = {
   "/": "Home",
@@ -14,16 +23,32 @@ const pageTitles: Record<string, string> = {
   "/settings": "Settings",
 };
 
+function getInitials(name: string): string {
+  return name
+    .split(" ")
+    .map((word) => word[0])
+    .filter(Boolean)
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+}
+
 interface HeaderProps {
   onMenuToggle: () => void;
 }
 
 export function Header({ onMenuToggle }: HeaderProps) {
   const pathname = usePathname();
+  const router = useRouter();
+  const { data: session } = useSession();
+
+  const userName = session?.user?.name || "User";
+  const userEmail = session?.user?.email || "";
+  const userImage = session?.user?.image;
+  const initials = getInitials(userName);
 
   const getTitle = () => {
     if (pageTitles[pathname]) return pageTitles[pathname];
-    // Handle nested routes
     const base = "/" + pathname.split("/")[1];
     return pageTitles[base] || "ReplayHQ";
   };
@@ -62,7 +87,7 @@ export function Header({ onMenuToggle }: HeaderProps) {
         </div>
       </div>
 
-      {/* Right: notifications + avatar */}
+      {/* Right: notifications + user menu */}
       <div className="ml-auto flex items-center gap-2">
         {/* Mobile search button */}
         <button className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground md:hidden">
@@ -72,7 +97,6 @@ export function Header({ onMenuToggle }: HeaderProps) {
         {/* Notifications */}
         <button className="relative flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
           <Bell className="h-[18px] w-[18px]" />
-          {/* Notification dot */}
           <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-primary">
             <span className="absolute inset-0 animate-ping rounded-full bg-primary opacity-75" />
           </span>
@@ -81,10 +105,76 @@ export function Header({ onMenuToggle }: HeaderProps) {
         {/* Divider */}
         <div className="mx-1 hidden h-6 w-px bg-border sm:block" />
 
-        {/* User avatar */}
-        <button className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold text-primary transition-all hover:bg-primary/25 hover:ring-2 hover:ring-primary/20">
-          TK
-        </button>
+        {/* User dropdown */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="flex items-center gap-2 rounded-full p-0.5 pr-2 transition-all hover:bg-secondary focus:outline-none focus:ring-2 focus:ring-primary/20">
+              {userImage ? (
+                <img
+                  src={userImage}
+                  alt={userName}
+                  className="h-8 w-8 rounded-full object-cover"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold text-primary">
+                  {initials}
+                </div>
+              )}
+              <ChevronDown className="hidden h-3.5 w-3.5 text-muted-foreground sm:block" />
+            </button>
+          </DropdownMenuTrigger>
+
+          <DropdownMenuContent align="end" className="w-56">
+            {/* User info */}
+            <DropdownMenuLabel className="font-normal">
+              <div className="flex items-center gap-3">
+                {userImage ? (
+                  <img
+                    src={userImage}
+                    alt={userName}
+                    className="h-10 w-10 rounded-full object-cover"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/15 text-sm font-semibold text-primary">
+                    {initials}
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-foreground">
+                    {userName}
+                  </p>
+                  {userEmail && (
+                    <p className="truncate text-xs text-muted-foreground">
+                      {userEmail}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </DropdownMenuLabel>
+
+            <DropdownMenuSeparator />
+
+            <DropdownMenuItem
+              onClick={() => router.push("/settings")}
+              className="cursor-pointer gap-2"
+            >
+              <Settings className="h-4 w-4" />
+              Settings
+            </DropdownMenuItem>
+
+            <DropdownMenuSeparator />
+
+            <DropdownMenuItem
+              onClick={() => signOut({ callbackUrl: "/login" })}
+              className="cursor-pointer gap-2 text-destructive focus:text-destructive"
+            >
+              <LogOut className="h-4 w-4" />
+              Sign out
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </header>
   );

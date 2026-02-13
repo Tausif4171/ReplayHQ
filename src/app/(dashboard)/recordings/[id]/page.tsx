@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useMemo, useCallback, use } from "react";
+import { useState, useMemo, useCallback, useEffect, use } from "react";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import {
   formatDuration,
@@ -9,13 +10,13 @@ import {
   getInitials,
   formatViews,
 } from "@/lib/utils";
-import { mockRecordings } from "@/lib/mock-data";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Play,
   Pause,
@@ -35,123 +36,64 @@ import {
   Calendar,
   Clock,
   SkipForward,
+  Loader2,
 } from "lucide-react";
 
-// ─── Mock Transcript Data ────────────────────────────────────────────────────
+// ─── Types ───────────────────────────────────────────────────────────────────
 
 interface TranscriptEntry {
   time: number; // seconds
   text: string;
 }
 
-const mockTranscript: TranscriptEntry[] = [
-  {
-    time: 0,
-    text: "Welcome everyone to today's deep dive session on erasure coding in distributed storage systems. Glad to see so many familiar faces.",
-  },
-  {
-    time: 35,
-    text: "Before we jump in, a quick agenda: we'll start with the fundamentals, move into Reed-Solomon coding, then look at how this works in practice.",
-  },
-  {
-    time: 78,
-    text: "So what is erasure coding? At its core, it's a method of data protection where data is broken into fragments, expanded with redundant pieces, and stored across different locations.",
-  },
-  {
-    time: 135,
-    text: "Think of it this way - you take your original data, split it into k data blocks, then generate m parity blocks. You can recover all data from any k of the k+m total blocks.",
-  },
-  {
-    time: 210,
-    text: "This is fundamentally different from replication. With 3x replication, you need 3x the storage. With erasure coding at a 4+2 config, you only need 1.5x the storage for similar durability.",
-  },
-  {
-    time: 330,
-    text: "Now let's talk about Reed-Solomon specifically. It's based on polynomial interpolation over finite fields - Galois fields to be precise.",
-  },
-  {
-    time: 465,
-    text: "In our implementation, we use GF(2^8) which gives us a field of 256 elements. Each symbol is one byte. The encoding matrix is a Vandermonde matrix.",
-  },
-  {
-    time: 580,
-    text: "Let me show you a quick demo. Here we have a 4+2 configuration running. I'm going to deliberately fail two drives and show you the reconstruction process.",
-  },
-  {
-    time: 720,
-    text: "Notice the reconstruction happened in under 200 milliseconds for this block. That's because we're using SIMD-optimized matrix operations on the encoding/decoding path.",
-  },
-  {
-    time: 890,
-    text: "One of the key trade-offs is the compute overhead during writes. Every write operation now involves matrix multiplication. We mitigate this with Intel ISA-L optimizations.",
-  },
-  {
-    time: 1050,
-    text: "Let's look at the benchmarks. For sequential writes, we see about a 15% throughput reduction compared to simple replication, but the storage savings more than compensate.",
-  },
-  {
-    time: 1200,
-    text: "For reads with all drives healthy, there's virtually no overhead. It's only during degraded reads - when we need to reconstruct - that we see latency impact.",
-  },
-  {
-    time: 1380,
-    text: "In production, we monitor the reconstruction rate carefully. If it drops below our SLA threshold, we trigger an alert and potentially rebalance the cluster.",
-  },
-  {
-    time: 1560,
-    text: "Questions so far? ... Great question about bitrot detection. Yes, we combine erasure coding with hash verification on each block to detect silent corruption.",
-  },
-  {
-    time: 1740,
-    text: "To wrap up: erasure coding gives us the sweet spot between storage efficiency and data durability. The key is choosing the right EC configuration for your workload profile.",
-  },
-];
-
-// ─── Mock Comments Data ──────────────────────────────────────────────────────
-
-interface Comment {
+interface ApiComment {
   id: string;
-  author: { name: string; initials: string };
   content: string;
-  videoTime?: number;
-  postedAt: Date;
+  timestamp: number | null;
+  createdAt: string;
+  user: {
+    id: string;
+    name: string | null;
+    image: string | null;
+  };
 }
 
-const mockComments: Comment[] = [
-  {
-    id: "c1",
-    author: { name: "Marcus Johnson", initials: "MJ" },
-    content:
-      "The SIMD optimization section was super insightful. Would love a follow-up session on the specific ISA-L intrinsics used.",
-    videoTime: 890,
-    postedAt: new Date("2026-02-02"),
-  },
-  {
-    id: "c2",
-    author: { name: "Alex Rivera", initials: "AR" },
-    content:
-      "Great session! The benchmark comparison between replication and EC really put things in perspective for the team.",
-    postedAt: new Date("2026-02-01"),
-  },
-  {
-    id: "c3",
-    author: { name: "Priya Patel", initials: "PP" },
-    content:
-      "How does this interact with our encryption-at-rest layer? Do we encrypt before or after erasure coding?",
-    videoTime: 465,
-    postedAt: new Date("2026-02-01"),
-  },
-  {
-    id: "c4",
-    author: { name: "Jordan Lee", initials: "JL" },
-    content:
-      "The live demo of drive failure recovery was impressive. Can we get the reconstruction latency numbers for different EC configurations?",
-    videoTime: 720,
-    postedAt: new Date("2026-01-31"),
-  },
-];
+interface ApiRecording {
+  id: string;
+  title: string;
+  description: string | null;
+  duration: number;
+  videoUrl: string;
+  status: string;
+  createdAt: string;
+  presenter: {
+    id: string;
+    name: string;
+    image: string | null;
+    role: string;
+  };
+  series?: {
+    id: string;
+    name: string;
+  } | null;
+  tags: { id: string; name: string }[];
+  comments: ApiComment[];
+  _count?: {
+    watchHistory?: number;
+    bookmarks?: number;
+  };
+}
 
-// ─── Mock AI Summary Data ────────────────────────────────────────────────────
+interface RelatedRecording {
+  id: string;
+  title: string;
+  duration: number;
+  createdAt: string;
+  presenter: { name: string };
+  _count?: { watchHistory?: number };
+}
+
+// ─── Mock AI Summary Data (will be replaced by real AI later) ────────────────
 
 const aiKeyTakeaways = [
   "Erasure coding provides significantly better storage efficiency than replication (1.5x vs 3x overhead) with comparable durability guarantees.",
@@ -175,6 +117,26 @@ const aiTopics = [
   "Production Monitoring",
 ];
 
+// ─── Mock Transcript (will be replaced by real transcription later) ──────────
+
+const mockTranscript: TranscriptEntry[] = [
+  { time: 0, text: "Welcome everyone to today's deep dive session. Glad to see so many familiar faces." },
+  { time: 35, text: "Before we jump in, a quick agenda: we'll start with the fundamentals, then look at how this works in practice." },
+  { time: 78, text: "So let's begin with the core concepts and walk through the architecture step by step." },
+  { time: 135, text: "Think of it this way - we take the original approach and optimize it for our specific workload patterns." },
+  { time: 210, text: "This is fundamentally different from the traditional approach. The efficiency gains are significant." },
+  { time: 330, text: "Now let's look at the implementation details and how we handle edge cases in production." },
+  { time: 465, text: "In our implementation, we use optimized data structures that give us excellent performance characteristics." },
+  { time: 580, text: "Let me show you a quick demo of how this works end to end." },
+  { time: 720, text: "Notice the performance here - this is because we're using optimized operations throughout the pipeline." },
+  { time: 890, text: "One of the key trade-offs is the compute overhead. We mitigate this with specific optimizations." },
+  { time: 1050, text: "Let's look at the benchmarks. The results speak for themselves." },
+  { time: 1200, text: "For reads in normal conditions, there's virtually no overhead. Performance impact is minimal." },
+  { time: 1380, text: "In production, we monitor the key metrics carefully and trigger alerts when needed." },
+  { time: 1560, text: "Great question. Yes, we combine multiple techniques to handle that scenario." },
+  { time: 1740, text: "To wrap up: this approach gives us the best balance of efficiency and reliability for our use case." },
+];
+
 // ─── Helper: format seconds to mm:ss ────────────────────────────────────────
 
 function formatTimestamp(seconds: number): string {
@@ -191,10 +153,15 @@ export default function RecordingDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
+  const { data: session } = useSession();
 
-  const recording = useMemo(() => {
-    return mockRecordings.find((r) => r.id === id) ?? mockRecordings[0];
-  }, [id]);
+  // API data state
+  const [recording, setRecording] = useState<ApiRecording | null>(null);
+  const [comments, setComments] = useState<ApiComment[]>([]);
+  const [relatedRecordings, setRelatedRecordings] = useState<RelatedRecording[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [submittingComment, setSubmittingComment] = useState(false);
 
   // Player state
   const [isPlaying, setIsPlaying] = useState(false);
@@ -211,7 +178,73 @@ export default function RecordingDetailPage({
   // Comment input
   const [commentText, setCommentText] = useState("");
 
-  const progressPercent = (currentTime / recording.duration) * 100;
+  // Fetch recording data
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchRecording() {
+      try {
+        const res = await fetch(`/api/recordings/${id}`);
+        if (!res.ok) {
+          if (res.status === 404) throw new Error("Recording not found");
+          throw new Error("Failed to fetch recording");
+        }
+        const data: ApiRecording = await res.json();
+        if (!cancelled) {
+          setRecording(data);
+          setComments(data.comments || []);
+
+          // Fetch related recordings (same tags)
+          const tagNames = data.tags.map((t) => t.name);
+          if (tagNames.length > 0) {
+            const relRes = await fetch(`/api/recordings?tag=${encodeURIComponent(tagNames[0])}&limit=7`);
+            if (relRes.ok) {
+              const relData = await relRes.json();
+              if (!cancelled) {
+                setRelatedRecordings(
+                  relData.recordings
+                    .filter((r: RelatedRecording) => r.id !== id)
+                    .slice(0, 6)
+                );
+              }
+            }
+          }
+        }
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Something went wrong");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    fetchRecording();
+    return () => { cancelled = true; };
+  }, [id]);
+
+  // Submit a new comment
+  const handleSubmitComment = useCallback(async () => {
+    if (!commentText.trim() || submittingComment) return;
+
+    setSubmittingComment(true);
+    try {
+      const res = await fetch(`/api/recordings/${id}/comments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: commentText.trim(), timestamp: null }),
+      });
+      if (res.ok) {
+        const newComment: ApiComment = await res.json();
+        setComments((prev) => [...prev, newComment]);
+        setCommentText("");
+      }
+    } catch {
+      // silently fail for now
+    } finally {
+      setSubmittingComment(false);
+    }
+  }, [commentText, submittingComment, id]);
+
+  const progressPercent = recording ? (currentTime / recording.duration) * 100 : 0;
 
   // Speed cycle
   const speeds = [1, 1.5, 2];
@@ -225,11 +258,12 @@ export default function RecordingDetailPage({
   // Seek via progress bar click
   const handleProgressClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
+      if (!recording) return;
       const rect = e.currentTarget.getBoundingClientRect();
       const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
       setCurrentTime(Math.floor(pct * recording.duration));
     },
-    [recording.duration]
+    [recording]
   );
 
   // Jump to timestamp
@@ -258,17 +292,73 @@ export default function RecordingDetailPage({
     return idx;
   }, [currentTime]);
 
-  // Related recordings (same series or shared tags)
-  const relatedRecordings = useMemo(() => {
-    return mockRecordings
-      .filter(
-        (r) =>
-          r.id !== recording.id &&
-          (r.series?.id === recording.series?.id ||
-            r.tags.some((t) => recording.tags.includes(t)))
-      )
-      .slice(0, 6);
-  }, [recording.id, recording.series, recording.tags]);
+  // Loading state
+  if (loading) {
+    return (
+      <div className="page-enter -mx-4 -mt-6 sm:-mx-6 lg:-mx-8">
+        <div className="flex flex-col gap-6 px-4 py-6 sm:px-6 lg:flex-row lg:gap-8 lg:px-8">
+          <div className="min-w-0 flex-1 space-y-5">
+            <Skeleton className="aspect-video w-full rounded-xl" />
+            <Skeleton className="h-8 w-3/4" />
+            <div className="flex gap-3">
+              <Skeleton className="h-4 w-20" />
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-4 w-20" />
+            </div>
+            <div className="flex gap-2">
+              <Skeleton className="h-6 w-16 rounded-full" />
+              <Skeleton className="h-6 w-16 rounded-full" />
+              <Skeleton className="h-6 w-16 rounded-full" />
+            </div>
+            <Separator />
+            <div className="flex items-center gap-3">
+              <Skeleton className="h-11 w-11 rounded-full" />
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-3 w-24" />
+              </div>
+            </div>
+          </div>
+          <div className="w-full shrink-0 lg:w-[320px]">
+            <Skeleton className="h-5 w-40 mb-3" />
+            <div className="space-y-2">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="flex gap-3">
+                  <Skeleton className="h-20 w-36 rounded-md" />
+                  <div className="flex-1 space-y-2 py-1">
+                    <Skeleton className="h-4 w-full" />
+                    <Skeleton className="h-3 w-24" />
+                    <Skeleton className="h-3 w-20" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Error state
+  if (error || !recording) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 text-center">
+        <h2 className="text-xl font-semibold text-foreground">
+          {error || "Recording not found"}
+        </h2>
+        <p className="mt-2 text-sm text-muted-foreground">
+          The recording you&apos;re looking for doesn&apos;t exist or couldn&apos;t be loaded.
+        </p>
+        <Button asChild variant="outline" className="mt-6">
+          <Link href="/recordings">Back to Recordings</Link>
+        </Button>
+      </div>
+    );
+  }
+
+  // Derived values from API recording
+  const tags = recording.tags.map((t) => t.name);
+  const views = recording._count?.watchHistory ?? 0;
 
   return (
     <div className="page-enter -mx-4 -mt-6 sm:-mx-6 lg:-mx-8">
@@ -437,12 +527,12 @@ export default function RecordingDetailPage({
             <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
               <span className="inline-flex items-center gap-1">
                 <Eye className="h-3.5 w-3.5" />
-                {formatViews(recording.views)} views
+                {formatViews(views)} views
               </span>
               <span className="text-muted-foreground/40">&#183;</span>
               <span className="inline-flex items-center gap-1">
                 <Calendar className="h-3.5 w-3.5" />
-                {formatRelativeDate(recording.createdAt)}
+                {formatRelativeDate(new Date(recording.createdAt))}
               </span>
               <span className="text-muted-foreground/40">&#183;</span>
               <span className="inline-flex items-center gap-1">
@@ -453,7 +543,7 @@ export default function RecordingDetailPage({
 
             {/* Tags */}
             <div className="flex flex-wrap gap-2">
-              {recording.tags.map((tag) => (
+              {tags.map((tag) => (
                 <Badge
                   key={tag}
                   variant="secondary"
@@ -479,6 +569,9 @@ export default function RecordingDetailPage({
               {/* Presenter */}
               <div className="flex items-center gap-3">
                 <Avatar className="h-11 w-11 ring-2 ring-primary/20">
+                  {recording.presenter.image && (
+                    <AvatarImage src={recording.presenter.image} alt={recording.presenter.name} />
+                  )}
                   <AvatarFallback className="bg-primary/15 text-sm font-semibold text-primary">
                     {getInitials(recording.presenter.name)}
                   </AvatarFallback>
@@ -540,9 +633,9 @@ export default function RecordingDetailPage({
                   !showDescription && "line-clamp-2"
                 )}
               >
-                {recording.description}
+                {recording.description || "No description provided."}
               </p>
-              {recording.description.length > 150 && (
+              {(recording.description?.length ?? 0) > 150 && (
                 <button
                   onClick={() => setShowDescription(!showDescription)}
                   className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
@@ -570,7 +663,7 @@ export default function RecordingDetailPage({
                 <TabsTrigger value="comments">
                   Comments
                   <span className="ml-1.5 rounded-full bg-muted-foreground/20 px-1.5 py-0.5 text-[10px] font-semibold">
-                    {mockComments.length}
+                    {comments.length}
                   </span>
                 </TabsTrigger>
               </TabsList>
@@ -691,30 +784,38 @@ export default function RecordingDetailPage({
               <TabsContent value="comments" className="mt-4 space-y-4">
                 {/* Comment list */}
                 <div className="space-y-4">
-                  {mockComments.map((comment) => (
+                  {comments.length === 0 && (
+                    <p className="py-8 text-center text-sm text-muted-foreground">
+                      No comments yet. Be the first to comment!
+                    </p>
+                  )}
+                  {comments.map((comment) => (
                     <div
                       key={comment.id}
                       className="group/comment flex gap-3"
                     >
                       <Avatar className="h-8 w-8 shrink-0">
+                        {comment.user.image && (
+                          <AvatarImage src={comment.user.image} alt={comment.user.name || "User"} />
+                        )}
                         <AvatarFallback className="bg-secondary text-[11px] font-semibold">
-                          {comment.author.initials}
+                          {getInitials(comment.user.name || "U")}
                         </AvatarFallback>
                       </Avatar>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-medium text-foreground">
-                            {comment.author.name}
+                            {comment.user.name || "Unknown"}
                           </span>
                           <span className="text-xs text-muted-foreground">
-                            {formatRelativeDate(comment.postedAt)}
+                            {formatRelativeDate(new Date(comment.createdAt))}
                           </span>
-                          {comment.videoTime !== undefined && (
+                          {comment.timestamp !== null && (
                             <button
-                              onClick={() => jumpTo(comment.videoTime!)}
+                              onClick={() => jumpTo(comment.timestamp!)}
                               className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-primary transition-colors hover:bg-primary/20"
                             >
-                              {formatTimestamp(comment.videoTime)}
+                              {formatTimestamp(comment.timestamp)}
                             </button>
                           )}
                         </div>
@@ -731,11 +832,20 @@ export default function RecordingDetailPage({
                 {/* Add a comment */}
                 <div className="flex gap-3">
                   <Avatar className="h-8 w-8 shrink-0">
+                    {session?.user?.image && (
+                      <AvatarImage src={session.user.image} alt={session.user.name || "You"} />
+                    )}
                     <AvatarFallback className="bg-primary/15 text-[11px] font-semibold text-primary">
-                      TK
+                      {getInitials(session?.user?.name || "U")}
                     </AvatarFallback>
                   </Avatar>
-                  <div className="flex flex-1 gap-2">
+                  <form
+                    className="flex flex-1 gap-2"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      handleSubmitComment();
+                    }}
+                  >
                     <Input
                       placeholder="Add a comment..."
                       value={commentText}
@@ -743,13 +853,18 @@ export default function RecordingDetailPage({
                       className="h-9 flex-1 text-sm"
                     />
                     <Button
+                      type="submit"
                       size="sm"
-                      disabled={!commentText.trim()}
+                      disabled={!commentText.trim() || submittingComment}
                       className="shrink-0"
                     >
-                      <Send className="h-3.5 w-3.5" />
+                      {submittingComment ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Send className="h-3.5 w-3.5" />
+                      )}
                     </Button>
-                  </div>
+                  </form>
                 </div>
               </TabsContent>
             </Tabs>
@@ -788,8 +903,8 @@ export default function RecordingDetailPage({
                           {rec.presenter.name}
                         </p>
                         <p className="mt-0.5 text-xs text-muted-foreground/60">
-                          {formatViews(rec.views)} views &#183;{" "}
-                          {formatRelativeDate(rec.createdAt)}
+                          {formatViews(rec._count?.watchHistory ?? 0)} views &#183;{" "}
+                          {formatRelativeDate(new Date(rec.createdAt))}
                         </p>
                       </div>
                     </Link>

@@ -4,7 +4,6 @@ import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { formatDuration, formatRelativeDate, getInitials } from "@/lib/utils";
-import { mockRecordings, mockSeries } from "@/lib/mock-data";
 import {
   Search,
   X,
@@ -15,6 +14,7 @@ import {
   TrendingUp,
   FolderOpen,
   FileText,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -22,6 +22,30 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface SearchRecording {
+  id: string;
+  title: string;
+  description: string;
+  duration: number;
+  presenter: { name: string };
+  series: { id: string; name: string } | null;
+  tags: string[];
+  views: number;
+  createdAt: Date;
+}
+
+interface SearchSeries {
+  id: string;
+  name: string;
+  description: string;
+  recordingCount: number;
+  coverColor: string;
+}
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -96,6 +120,49 @@ const TRANSCRIPT_SNIPPETS: Record<
   },
 };
 
+const SERIES_GRADIENT_COLORS = [
+  "from-indigo-500 to-purple-600",
+  "from-emerald-500 to-teal-600",
+  "from-orange-500 to-rose-600",
+  "from-sky-500 to-blue-600",
+];
+
+// ---------------------------------------------------------------------------
+// API mappers
+// ---------------------------------------------------------------------------
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapApiRecording(apiRec: any): SearchRecording {
+  return {
+    id: apiRec.id,
+    title: apiRec.title,
+    description: apiRec.description || "",
+    duration: apiRec.duration || 0,
+    presenter: {
+      name: apiRec.presenter?.name || "Unknown",
+    },
+    series: apiRec.series
+      ? { id: apiRec.series.id, name: apiRec.series.name }
+      : null,
+    tags:
+      apiRec.tags?.map((t: { id: string; name: string }) => t.name) || [],
+    views: apiRec._count?.watchHistory || 0,
+    createdAt: new Date(apiRec.createdAt),
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapApiSeries(apiSeries: any, index: number): SearchSeries {
+  return {
+    id: apiSeries.id,
+    name: apiSeries.name,
+    description: apiSeries.description || "",
+    recordingCount: apiSeries._count?.recordings || 0,
+    coverColor:
+      SERIES_GRADIENT_COLORS[index % SERIES_GRADIENT_COLORS.length],
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -161,7 +228,7 @@ function GradientThumbnail({ title }: { title: string }) {
 }
 
 interface ResultCardProps {
-  recording: (typeof mockRecordings)[number];
+  recording: SearchRecording;
   query: string;
   showTranscript?: boolean;
 }
@@ -257,27 +324,79 @@ export default function SearchPage() {
   const debouncedQuery = useDebounce(query, 300);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const [results, setResults] = useState<SearchRecording[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [series, setSeries] = useState<SearchSeries[]>([]);
+
   // Auto-focus on mount
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
 
-  // Filter recordings
-  const results = useMemo(() => {
-    if (!debouncedQuery.trim()) return [];
-    const q = debouncedQuery.toLowerCase();
-    return mockRecordings.filter((r) => {
-      const titleMatch = r.title.toLowerCase().includes(q);
-      const descMatch = r.description.toLowerCase().includes(q);
-      const tagMatch = r.tags.some((t) => t.toLowerCase().includes(q));
-      const presenterMatch = r.presenter.name.toLowerCase().includes(q);
-      const transcriptMatch = TRANSCRIPT_SNIPPETS[r.id]?.text
-        ?.toLowerCase()
-        .includes(q);
-      return (
-        titleMatch || descMatch || tagMatch || presenterMatch || transcriptMatch
-      );
-    });
+  // Fetch series for Browse by Series section
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchSeries() {
+      try {
+        const res = await fetch("/api/series");
+        if (!res.ok) throw new Error("Failed to fetch series");
+        const data = await res.json();
+        if (!cancelled) {
+          setSeries(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            data.map((s: any, i: number) => mapApiSeries(s, i))
+          );
+        }
+      } catch (err) {
+        console.error("Error fetching series:", err);
+      }
+    }
+
+    fetchSeries();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Search recordings via API when debounced query changes
+  useEffect(() => {
+    if (!debouncedQuery.trim()) {
+      setResults([]);
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLoading(true);
+
+    async function fetchResults() {
+      try {
+        const res = await fetch(
+          `/api/recordings?search=${encodeURIComponent(debouncedQuery)}&limit=20`
+        );
+        if (!res.ok) throw new Error("Failed to fetch recordings");
+        const data = await res.json();
+        if (!cancelled) {
+          setResults(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            data.recordings.map((r: any) => mapApiRecording(r))
+          );
+        }
+      } catch (err) {
+        console.error("Error searching recordings:", err);
+        if (!cancelled) {
+          setResults([]);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    fetchResults();
+    return () => {
+      cancelled = true;
+    };
   }, [debouncedQuery]);
 
   // Separate transcript-only matches for the Transcripts tab
@@ -401,28 +520,28 @@ export default function SearchPage() {
               Browse by Series
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {mockSeries.map((series) => (
+              {series.map((s) => (
                 <Link
-                  key={series.id}
-                  href={`/recordings?series=${series.id}`}
+                  key={s.id}
+                  href={`/recordings?series=${s.id}`}
                   className="group"
                 >
                   <Card className="overflow-hidden border-border/50 transition-all hover:border-border hover:shadow-md hover:shadow-primary/5">
                     <div
                       className={cn(
                         "h-2 bg-gradient-to-r",
-                        series.coverColor
+                        s.coverColor
                       )}
                     />
                     <CardContent className="p-4">
                       <h3 className="font-medium text-sm group-hover:text-primary transition-colors">
-                        {series.name}
+                        {s.name}
                       </h3>
                       <p className="mt-1 text-xs text-muted-foreground line-clamp-1">
-                        {series.description}
+                        {s.description}
                       </p>
                       <p className="mt-2 text-xs text-muted-foreground/70">
-                        {series.recordingCount} recordings
+                        {s.recordingCount} recordings
                       </p>
                     </CardContent>
                   </Card>
@@ -434,9 +553,21 @@ export default function SearchPage() {
       )}
 
       {/* ----------------------------------------------------------------- */}
+      {/* Loading state */}
+      {/* ----------------------------------------------------------------- */}
+      {hasQuery && loading && (
+        <div className="mx-auto flex flex-col items-center justify-center py-20">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          <p className="mt-4 text-sm text-muted-foreground">
+            Searching...
+          </p>
+        </div>
+      )}
+
+      {/* ----------------------------------------------------------------- */}
       {/* Results state */}
       {/* ----------------------------------------------------------------- */}
-      {hasQuery && results.length > 0 && (
+      {hasQuery && !loading && results.length > 0 && (
         <div className="mx-auto w-full max-w-4xl flex flex-col gap-4">
           <p className="text-sm text-muted-foreground">
             Found{" "}
@@ -528,7 +659,7 @@ export default function SearchPage() {
       {/* ----------------------------------------------------------------- */}
       {/* Empty state */}
       {/* ----------------------------------------------------------------- */}
-      {hasQuery && results.length === 0 && (
+      {hasQuery && !loading && results.length === 0 && (
         <div className="mx-auto flex max-w-md flex-col items-center justify-center py-20 text-center">
           <div className="mb-6 rounded-full bg-muted/50 p-5">
             <Search className="h-10 w-10 text-muted-foreground/40" />

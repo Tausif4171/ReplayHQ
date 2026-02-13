@@ -77,31 +77,39 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const recording = await prisma.recording.create({
-    data: {
-      title,
-      description,
-      videoUrl,
-      duration,
-      status: "PROCESSING",
-      uploadedById: session.user.id,
-      presenterId: session.user.id,
-      seriesId: seriesId || undefined,
-      tags: tags?.length
-        ? {
-            connectOrCreate: tags.map((tag: string) => ({
-              where: { name: tag },
-              create: { name: tag },
-            })),
-          }
-        : undefined,
-    },
-    include: {
-      presenter: { select: { id: true, name: true, image: true, role: true } },
-      series: { select: { id: true, name: true } },
-      tags: true,
-    },
-  });
+  try {
+    const recording = await prisma.recording.create({
+      data: {
+        title,
+        description,
+        videoUrl,
+        duration,
+        status: "PROCESSING",
+        uploadedById: session.user.id,
+        presenterId: session.user.id,
+        seriesId: seriesId || undefined,
+        tags: tags?.length
+          ? {
+              connectOrCreate: tags.map((tag: string) => ({
+                where: { name: tag },
+                create: { name: tag },
+              })),
+            }
+          : undefined,
+      },
+      include: {
+        presenter: { select: { id: true, name: true, image: true, role: true } },
+        series: { select: { id: true, name: true } },
+        tags: true,
+      },
+    });
 
-  return NextResponse.json(recording, { status: 201 });
+    return NextResponse.json(recording, { status: 201 });
+  } catch (error) {
+    console.error("Failed to create recording:", error);
+    return NextResponse.json(
+      { error: "Failed to create recording" },
+      { status: 500 }
+    );
+  }
 }

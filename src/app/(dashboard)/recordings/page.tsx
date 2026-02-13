@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import {
   Search,
@@ -10,11 +10,12 @@ import {
   SlidersHorizontal,
   Film,
   X,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import RecordingCard from "@/components/recordings/recording-card";
-import { mockRecordings, mockSeries } from "@/lib/mock-data";
+import type { Recording, Series } from "@/lib/mock-data";
 
 type SortOption = "newest" | "oldest" | "most-viewed" | "a-z";
 type ViewMode = "grid" | "list";
@@ -36,6 +37,55 @@ const SORT_OPTIONS: { value: SortOption; label: string }[] = [
   { value: "a-z", label: "A-Z" },
 ];
 
+const SERIES_GRADIENT_COLORS = [
+  "from-indigo-500 to-purple-600",
+  "from-emerald-500 to-teal-600",
+  "from-orange-500 to-rose-600",
+  "from-sky-500 to-blue-600",
+];
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapApiRecording(apiRec: any): Recording {
+  return {
+    id: apiRec.id,
+    title: apiRec.title,
+    description: apiRec.description || "",
+    duration: apiRec.duration || 0,
+    thumbnailUrl: "",
+    presenter: {
+      id: apiRec.presenter?.id || "",
+      name: apiRec.presenter?.name || "Unknown",
+      avatar: apiRec.presenter?.image || undefined,
+      role: apiRec.presenter?.role || "",
+    },
+    series: apiRec.series
+      ? { id: apiRec.series.id, name: apiRec.series.name }
+      : undefined,
+    tags: apiRec.tags?.map((t: { id: string; name: string }) => t.name) || [],
+    views: apiRec._count?.watchHistory || 0,
+    status: (apiRec.status || "ready").toLowerCase() as
+      | "processing"
+      | "ready"
+      | "failed",
+    hasTranscript: false,
+    hasSummary: false,
+    recordedAt: new Date(apiRec.createdAt),
+    createdAt: new Date(apiRec.createdAt),
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapApiSeries(apiSeries: any, index: number): Series {
+  return {
+    id: apiSeries.id,
+    name: apiSeries.name,
+    description: apiSeries.description || "",
+    recordingCount: apiSeries._count?.recordings || 0,
+    coverColor:
+      SERIES_GRADIENT_COLORS[index % SERIES_GRADIENT_COLORS.length],
+  };
+}
+
 export default function RecordingsPage() {
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [searchQuery, setSearchQuery] = useState("");
@@ -45,9 +95,72 @@ export default function RecordingsPage() {
   const [seriesDropdownOpen, setSeriesDropdownOpen] = useState(false);
   const [sortDropdownOpen, setSortDropdownOpen] = useState(false);
 
+  const [recordings, setRecordings] = useState<Recording[]>([]);
+  const [series, setSeries] = useState<Series[]>([]);
+  const [loadingRecordings, setLoadingRecordings] = useState(true);
+  const [loadingSeries, setLoadingSeries] = useState(true);
+
+  // Fetch recordings from API
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchRecordings() {
+      try {
+        const res = await fetch("/api/recordings?limit=100");
+        if (!res.ok) throw new Error("Failed to fetch recordings");
+        const data = await res.json();
+        if (!cancelled) {
+          setRecordings(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            data.recordings.map((r: any) => mapApiRecording(r))
+          );
+        }
+      } catch (err) {
+        console.error("Error fetching recordings:", err);
+      } finally {
+        if (!cancelled) setLoadingRecordings(false);
+      }
+    }
+
+    fetchRecordings();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Fetch series from API
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchSeries() {
+      try {
+        const res = await fetch("/api/series");
+        if (!res.ok) throw new Error("Failed to fetch series");
+        const data = await res.json();
+        if (!cancelled) {
+          setSeries(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            data.map((s: any, i: number) => mapApiSeries(s, i))
+          );
+        }
+      } catch (err) {
+        console.error("Error fetching series:", err);
+      } finally {
+        if (!cancelled) setLoadingSeries(false);
+      }
+    }
+
+    fetchSeries();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const isLoading = loadingRecordings || loadingSeries;
+
   // Filter and sort recordings
   const filteredRecordings = useMemo(() => {
-    let results = [...mockRecordings];
+    let results = [...recordings];
 
     // Filter by search query
     if (searchQuery.trim()) {
@@ -86,7 +199,7 @@ export default function RecordingsPage() {
     }
 
     return results;
-  }, [searchQuery, selectedSeries, sortBy, selectedTag]);
+  }, [recordings, searchQuery, selectedSeries, sortBy, selectedTag]);
 
   const hasActiveFilters =
     searchQuery.trim() !== "" ||
@@ -99,6 +212,60 @@ export default function RecordingsPage() {
     setSelectedTag("All");
     setSortBy("newest");
   };
+
+  // Loading skeleton
+  if (isLoading) {
+    return (
+      <div>
+        {/* Page header skeleton */}
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-foreground">
+              Recordings
+            </h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Browse all team recordings and learning sessions
+            </p>
+          </div>
+        </div>
+
+        {/* Series cards skeleton */}
+        <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div
+              key={i}
+              className="h-[72px] animate-pulse rounded-xl bg-secondary/60"
+            />
+          ))}
+        </div>
+
+        {/* Filter bar skeleton */}
+        <div className="mt-6 flex flex-wrap items-center gap-3">
+          <div className="h-9 w-64 animate-pulse rounded-md bg-secondary/60" />
+          <div className="h-9 w-32 animate-pulse rounded-md bg-secondary/60" />
+          <div className="h-9 w-28 animate-pulse rounded-md bg-secondary/60" />
+        </div>
+
+        {/* Tag pills skeleton */}
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {Array.from({ length: 7 }).map((_, i) => (
+            <div
+              key={i}
+              className="h-7 w-20 animate-pulse rounded-full bg-secondary/60"
+            />
+          ))}
+        </div>
+
+        {/* Loading indicator */}
+        <div className="mt-12 flex flex-col items-center justify-center py-16 text-center">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          <p className="mt-4 text-sm text-muted-foreground">
+            Loading recordings...
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -148,19 +315,19 @@ export default function RecordingsPage() {
 
       {/* Series cards */}
       <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {mockSeries.map((series) => (
+        {series.map((s) => (
           <button
-            key={series.id}
+            key={s.id}
             onClick={() =>
               setSelectedSeries(
-                selectedSeries === series.name ? "All Series" : series.name
+                selectedSeries === s.name ? "All Series" : s.name
               )
             }
             className={cn(
               "group relative overflow-hidden rounded-xl p-4 text-left transition-all duration-200",
               "bg-gradient-to-br",
-              series.coverColor,
-              selectedSeries === series.name
+              s.coverColor,
+              selectedSeries === s.name
                 ? "ring-2 ring-white/30 shadow-lg scale-[1.02]"
                 : "hover:shadow-md hover:scale-[1.01]"
             )}
@@ -168,10 +335,10 @@ export default function RecordingsPage() {
             <div className="absolute inset-0 bg-black/10" />
             <div className="relative">
               <p className="text-sm font-semibold text-white leading-tight">
-                {series.name}
+                {s.name}
               </p>
               <p className="mt-1.5 text-xs text-white/70">
-                {series.recordingCount} recordings
+                {s.recordingCount} recordings
               </p>
             </div>
           </button>
@@ -232,7 +399,7 @@ export default function RecordingsPage() {
                 />
                 <div className="absolute left-0 top-full z-50 mt-1 w-56 overflow-hidden rounded-lg border border-border bg-card shadow-xl">
                   <div className="p-1">
-                    {["All Series", ...mockSeries.map((s) => s.name)].map(
+                    {["All Series", ...series.map((s) => s.name)].map(
                       (option) => (
                         <button
                           key={option}

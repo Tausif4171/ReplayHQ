@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { useDropzone } from "react-dropzone";
 import { cn } from "@/lib/utils";
 import {
@@ -13,9 +14,7 @@ import {
   Brain,
   Upload,
   Calendar,
-  User,
   Film,
-  Tag,
   FileText,
   ArrowRight,
   ArrowLeft,
@@ -49,21 +48,6 @@ const STEPS = [
   { id: 2, label: "Details" },
   { id: 3, label: "Publish" },
 ] as const;
-
-const TEAM_MEMBERS = [
-  "Krishna Mohan",
-  "Aditya Singh",
-  "Harshavardhana",
-  "Farhan Patel",
-  "Tausif Khan",
-];
-
-const SERIES_OPTIONS = [
-  "Internal Learning Series",
-  "Engineering Deep Dives",
-  "Product Workshops",
-  "Onboarding",
-];
 
 const ACCEPTED_TYPES: Record<string, string[]> = {
   "video/mp4": [".mp4"],
@@ -234,7 +218,16 @@ function AIToggleCard({
 /*  Main Upload Page                                                   */
 /* ------------------------------------------------------------------ */
 
+interface SeriesOption {
+  id: string;
+  name: string;
+  description: string | null;
+  _count: { recordings: number };
+}
+
 export default function UploadPage() {
+  const router = useRouter();
+
   /* ---- State ---- */
   const [currentStep, setCurrentStep] = useState(1);
   const [file, setFile] = useState<File | null>(null);
@@ -243,7 +236,6 @@ export default function UploadPage() {
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [presenter, setPresenter] = useState("");
   const [series, setSeries] = useState("");
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState("");
@@ -251,6 +243,11 @@ export default function UploadPage() {
   const [aiTranscript, setAiTranscript] = useState(true);
   const [aiSummary, setAiSummary] = useState(true);
   const [isPublished, setIsPublished] = useState(false);
+  const [publishedRecordingId, setPublishedRecordingId] = useState<string | null>(null);
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [publishError, setPublishError] = useState<string | null>(null);
+
+  const [seriesOptions, setSeriesOptions] = useState<SeriesOption[]>([]);
 
   const tagInputRef = useRef<HTMLInputElement>(null);
 
@@ -286,6 +283,14 @@ export default function UploadPage() {
       return () => clearTimeout(timeout);
     }
   }, [isUploaded, currentStep]);
+
+  /* ---- Fetch series from API ---- */
+  useEffect(() => {
+    fetch("/api/series")
+      .then((res) => res.json())
+      .then((data) => setSeriesOptions(data))
+      .catch(() => setSeriesOptions([]));
+  }, []);
 
   /* ---- Dropzone ---- */
   const onDrop = useCallback(
@@ -345,9 +350,46 @@ export default function UploadPage() {
     setCurrentStep((prev) => Math.max(prev - 1, 1) as 1 | 2 | 3);
 
   /* ---- Publish ---- */
-  const handlePublish = () => {
-    setIsPublished(true);
-    setCurrentStep(4 as number);
+  const handlePublish = async () => {
+    setIsPublishing(true);
+    setPublishError(null);
+
+    try {
+      const res = await fetch("/api/recordings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: title.trim(),
+          description: description.trim() || undefined,
+          videoUrl: "pending-upload",
+          duration: 0,
+          seriesId: series || undefined,
+          tags,
+        }),
+      });
+
+      const text = await res.text();
+      let data: any;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error("Server returned an unexpected response");
+      }
+
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to publish recording");
+      }
+
+      setPublishedRecordingId(data.id);
+      setIsPublished(true);
+      setCurrentStep(4 as number);
+    } catch (err) {
+      setPublishError(
+        err instanceof Error ? err.message : "Something went wrong"
+      );
+    } finally {
+      setIsPublishing(false);
+    }
   };
 
   /* ---- Reset for "Upload Another" ---- */
@@ -358,7 +400,6 @@ export default function UploadPage() {
     setIsUploaded(false);
     setTitle("");
     setDescription("");
-    setPresenter("");
     setSeries("");
     setTags([]);
     setTagInput("");
@@ -366,6 +407,8 @@ export default function UploadPage() {
     setAiTranscript(true);
     setAiSummary(true);
     setIsPublished(false);
+    setPublishedRecordingId(null);
+    setPublishError(null);
   };
 
   /* ================================================================ */
@@ -398,7 +441,12 @@ export default function UploadPage() {
             <Button variant="outline" size="lg" onClick={resetAll}>
               Upload Another
             </Button>
-            <Button size="lg">
+            <Button
+              size="lg"
+              onClick={() =>
+                router.push(`/recordings/${publishedRecordingId}`)
+              }
+            >
               View Recording
               <ArrowRight className="ml-1 h-4 w-4" />
             </Button>
@@ -594,46 +642,23 @@ export default function UploadPage() {
               />
             </div>
 
-            {/* Presenter & Series (side by side) */}
-            <div className="grid gap-6 sm:grid-cols-2">
-              <div className="space-y-2">
-                <label className="text-sm font-medium leading-none">
-                  Presenter
-                </label>
-                <Select value={presenter} onValueChange={setPresenter}>
-                  <SelectTrigger className="h-11">
-                    <SelectValue placeholder="Select presenter" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {TEAM_MEMBERS.map((member) => (
-                      <SelectItem key={member} value={member}>
-                        {member}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium leading-none">
-                  Series
-                </label>
-                <Select value={series} onValueChange={setSeries}>
-                  <SelectTrigger className="h-11">
-                    <SelectValue placeholder="Select series" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {SERIES_OPTIONS.map((s) => (
-                      <SelectItem key={s} value={s}>
-                        {s}
-                      </SelectItem>
-                    ))}
-                    <SelectItem value="__new__">
-                      + Create new series
+            {/* Series */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium leading-none">
+                Series
+              </label>
+              <Select value={series} onValueChange={setSeries}>
+                <SelectTrigger className="h-11">
+                  <SelectValue placeholder="Select series" />
+                </SelectTrigger>
+                <SelectContent>
+                  {seriesOptions.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.name}
                     </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             {/* Tags */}
@@ -774,17 +799,11 @@ export default function UploadPage() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <ReviewRow icon={FileText} label="Title" value={title} />
                 <ReviewRow
-                  icon={User}
-                  label="Presenter"
-                  value={presenter || "Not specified"}
-                />
-                <ReviewRow
                   icon={Film}
                   label="Series"
                   value={
-                    series === "__new__"
-                      ? "New series"
-                      : series || "Not specified"
+                    seriesOptions.find((s) => s.id === series)?.name ||
+                    "Not specified"
                   }
                 />
                 <ReviewRow
@@ -866,19 +885,25 @@ export default function UploadPage() {
             </CardContent>
           </Card>
 
+          {publishError && (
+            <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+              {publishError}
+            </div>
+          )}
+
           {/* Step 3 navigation */}
           <div className="flex justify-between">
-            <Button variant="outline" size="lg" onClick={goBack}>
+            <Button variant="outline" size="lg" onClick={goBack} disabled={isPublishing}>
               <ArrowLeft className="mr-1 h-4 w-4" />
               Back
             </Button>
             <div className="flex gap-3">
-              <Button variant="outline" size="lg">
+              <Button variant="outline" size="lg" disabled={isPublishing}>
                 Save as Draft
               </Button>
-              <Button size="lg" onClick={handlePublish}>
+              <Button size="lg" onClick={handlePublish} disabled={isPublishing}>
                 <Upload className="mr-1 h-4 w-4" />
-                Publish
+                {isPublishing ? "Publishing..." : "Publish"}
               </Button>
             </div>
           </div>

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useSession, signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import {
   Play,
@@ -16,6 +17,7 @@ import {
   X,
   ChevronsLeft,
   ChevronsRight,
+  LogOut,
 } from "lucide-react";
 
 const mainNavItems = [
@@ -36,9 +38,33 @@ interface SidebarProps {
   onClose: () => void;
 }
 
+function getInitials(name: string): string {
+  return name
+    .split(" ")
+    .map((word) => word[0])
+    .filter(Boolean)
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+}
+
+function getDisplayName(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length <= 1) return name;
+  const firstName = parts[0];
+  const lastInitial = parts[parts.length - 1][0];
+  return `${firstName} ${lastInitial}.`;
+}
+
 export function Sidebar({ open, onClose }: SidebarProps) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
+  const { data: session } = useSession();
+
+  const userName = session?.user?.name || "User";
+  const displayName = getDisplayName(userName);
+  const initials = getInitials(userName);
+  const avatarUrl = session?.user?.image;
 
   const isActive = (href: string) => {
     if (href === "/") return pathname === "/";
@@ -187,18 +213,35 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               collapsed && "justify-center px-2"
             )}
           >
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold text-primary">
-              TK
-            </div>
-            {!collapsed && (
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-foreground">
-                  Tausif K.
-                </p>
-                <p className="truncate text-xs text-muted-foreground">
-                  Admin
-                </p>
+            {avatarUrl ? (
+              <img
+                src={avatarUrl}
+                alt={userName}
+                className="h-8 w-8 shrink-0 rounded-full object-cover"
+              />
+            ) : (
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold text-primary">
+                {initials}
               </div>
+            )}
+            {!collapsed && (
+              <>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-foreground">
+                    {displayName}
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    Member
+                  </p>
+                </div>
+                <button
+                  onClick={() => signOut({ callbackUrl: "/login" })}
+                  title="Sign out"
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                >
+                  <LogOut className="h-3.5 w-3.5" />
+                </button>
+              </>
             )}
           </div>
         </div>

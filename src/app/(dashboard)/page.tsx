@@ -359,8 +359,7 @@ export default function DashboardPage() {
       {(continueLoading || (continueWatching && continueWatching.length > 0)) && (
         <motion.section
           initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true, margin: "-60px" }}
+          animate="visible"
           variants={staggerContainer}
           className="space-y-4"
         >
@@ -389,8 +388,7 @@ export default function DashboardPage() {
       {/* ================================================================== */}
       <motion.section
         initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true, margin: "-60px" }}
+        animate="visible"
         variants={staggerContainer}
         className="space-y-4"
       >
@@ -418,8 +416,7 @@ export default function DashboardPage() {
       {/* ================================================================== */}
       <motion.section
         initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true, margin: "-60px" }}
+        animate="visible"
         variants={staggerContainer}
         className="space-y-4"
       >

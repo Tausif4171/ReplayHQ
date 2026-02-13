@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect, use } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef, use } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { cn } from "@/lib/utils";
@@ -164,8 +164,11 @@ export default function RecordingDetailPage({
   const [submittingComment, setSubmittingComment] = useState(false);
 
   // Player state
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [videoSrc, setVideoSrc] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [isMuted, setIsMuted] = useState(false);
   const [showDescription, setShowDescription] = useState(false);
@@ -221,6 +224,66 @@ export default function RecordingDetailPage({
     return () => { cancelled = true; };
   }, [id]);
 
+  // Fetch video stream URL
+  useEffect(() => {
+    if (!recording) return;
+    let cancelled = false;
+
+    async function fetchStreamUrl() {
+      try {
+        const res = await fetch(`/api/recordings/${id}/stream`);
+        if (res.ok) {
+          const { url } = await res.json();
+          if (!cancelled) setVideoSrc(url);
+        }
+      } catch {
+        // video won't play — graceful degradation
+      }
+    }
+
+    fetchStreamUrl();
+    return () => { cancelled = true; };
+  }, [recording, id]);
+
+  // Sync video element with state
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.playbackRate = playbackSpeed;
+  }, [playbackSpeed]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.muted = isMuted;
+  }, [isMuted]);
+
+  const togglePlay = useCallback(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (video.paused) {
+      video.play();
+      setIsPlaying(true);
+    } else {
+      video.pause();
+      setIsPlaying(false);
+    }
+  }, []);
+
+  const handleVideoTimeUpdate = useCallback(() => {
+    const video = videoRef.current;
+    if (video) setCurrentTime(Math.floor(video.currentTime));
+  }, []);
+
+  const handleVideoLoadedMetadata = useCallback(() => {
+    const video = videoRef.current;
+    if (video) setDuration(Math.floor(video.duration));
+  }, []);
+
+  const handleVideoEnded = useCallback(() => {
+    setIsPlaying(false);
+  }, []);
+
   // Submit a new comment
   const handleSubmitComment = useCallback(async () => {
     if (!commentText.trim() || submittingComment) return;
@@ -244,7 +307,8 @@ export default function RecordingDetailPage({
     }
   }, [commentText, submittingComment, id]);
 
-  const progressPercent = recording ? (currentTime / recording.duration) * 100 : 0;
+  const videoDuration = duration || recording?.duration || 0;
+  const progressPercent = videoDuration > 0 ? (currentTime / videoDuration) * 100 : 0;
 
   // Speed cycle
   const speeds = [1, 1.5, 2];
@@ -258,17 +322,24 @@ export default function RecordingDetailPage({
   // Seek via progress bar click
   const handleProgressClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
-      if (!recording) return;
+      const dur = videoDuration;
+      if (!dur) return;
       const rect = e.currentTarget.getBoundingClientRect();
       const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-      setCurrentTime(Math.floor(pct * recording.duration));
+      const newTime = Math.floor(pct * dur);
+      setCurrentTime(newTime);
+      if (videoRef.current) videoRef.current.currentTime = newTime;
     },
-    [recording]
+    [videoDuration]
   );
 
   // Jump to timestamp
   const jumpTo = useCallback((seconds: number) => {
     setCurrentTime(seconds);
+    if (videoRef.current) {
+      videoRef.current.currentTime = seconds;
+      videoRef.current.play();
+    }
     setIsPlaying(true);
   }, []);
 
@@ -366,69 +437,70 @@ export default function RecordingDetailPage({
         {/* ────────────────────── LEFT COLUMN ────────────────────── */}
         <div className="min-w-0 flex-1">
           {/* Video Player */}
-          <div className="group relative overflow-hidden rounded-xl bg-black/90 shadow-2xl shadow-black/40 ring-1 ring-white/5">
+          <div className="group relative overflow-hidden rounded-xl bg-black shadow-2xl shadow-black/40 ring-1 ring-white/5">
             {/* 16:9 aspect ratio */}
-            <div className="relative aspect-video">
-              {/* Gradient placeholder background */}
-              <div className="absolute inset-0 bg-gradient-to-br from-primary/30 via-background to-primary/10" />
-
-              {/* Decorative grid pattern */}
-              <div className="absolute inset-0 opacity-[0.03]"
-                style={{
-                  backgroundImage:
-                    "linear-gradient(rgba(255,255,255,.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.1) 1px, transparent 1px)",
-                  backgroundSize: "40px 40px",
-                }}
-              />
-
-              {/* Animated gradient orbs */}
-              <div className="absolute left-1/4 top-1/4 h-64 w-64 rounded-full bg-primary/20 blur-[100px]" />
-              <div className="absolute bottom-1/4 right-1/4 h-48 w-48 rounded-full bg-primary/15 blur-[80px]" />
-
-              {/* Center play button & title */}
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-4">
-                <button
-                  onClick={() => setIsPlaying(!isPlaying)}
-                  className={cn(
-                    "flex h-20 w-20 items-center justify-center rounded-full transition-all duration-300",
-                    "bg-primary/90 text-primary-foreground shadow-lg shadow-primary/30",
-                    "hover:bg-primary hover:scale-110 hover:shadow-xl hover:shadow-primary/40",
-                    "active:scale-95",
-                    isPlaying && "bg-white/10 backdrop-blur-sm hover:bg-white/20"
-                  )}
-                >
-                  {isPlaying ? (
-                    <Pause className="h-8 w-8" />
-                  ) : (
-                    <Play className="ml-1 h-8 w-8" />
-                  )}
-                </button>
-                <div className="max-w-md px-4 text-center">
-                  <p className="text-sm font-medium text-white/60">
-                    {recording.presenter.name}
-                  </p>
-                  <p className="mt-1 text-base font-semibold text-white/90 line-clamp-2">
-                    {recording.title}
-                  </p>
+            <div className="relative aspect-video" onClick={togglePlay}>
+              {/* Real video element */}
+              {videoSrc ? (
+                <video
+                  ref={videoRef}
+                  src={videoSrc}
+                  className="absolute inset-0 h-full w-full object-contain"
+                  onTimeUpdate={handleVideoTimeUpdate}
+                  onLoadedMetadata={handleVideoLoadedMetadata}
+                  onEnded={handleVideoEnded}
+                  onPlay={() => setIsPlaying(true)}
+                  onPause={() => setIsPlaying(false)}
+                  playsInline
+                />
+              ) : (
+                /* Placeholder when no video URL */
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-gradient-to-br from-primary/30 via-background to-primary/10">
+                  <div className="absolute left-1/4 top-1/4 h-64 w-64 rounded-full bg-primary/20 blur-[100px]" />
+                  <div className="absolute bottom-1/4 right-1/4 h-48 w-48 rounded-full bg-primary/15 blur-[80px]" />
+                  <div className="relative flex flex-col items-center gap-3">
+                    <Loader2 className="h-10 w-10 animate-spin text-white/40" />
+                    <p className="text-sm text-white/50">Loading video...</p>
+                  </div>
                 </div>
-              </div>
+              )}
 
-              {/* Top-left: live badge / recording indicator */}
+              {/* Center play button (shown when paused) */}
+              {videoSrc && !isPlaying && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); togglePlay(); }}
+                    className={cn(
+                      "flex h-20 w-20 items-center justify-center rounded-full transition-all duration-300",
+                      "bg-primary/90 text-primary-foreground shadow-lg shadow-primary/30",
+                      "hover:bg-primary hover:scale-110 hover:shadow-xl hover:shadow-primary/40",
+                      "active:scale-95"
+                    )}
+                  >
+                    <Play className="ml-1 h-8 w-8" />
+                  </button>
+                </div>
+              )}
+
+              {/* Top-left: duration badge */}
               <div className="absolute left-4 top-4 flex items-center gap-2">
                 <Badge
                   variant="secondary"
                   className="bg-black/50 text-white/80 backdrop-blur-sm border-white/10"
                 >
                   <Clock className="mr-1 h-3 w-3" />
-                  {formatDuration(recording.duration)}
+                  {formatDuration(videoDuration)}
                 </Badge>
               </div>
 
               {/* Custom controls overlay */}
-              <div className={cn(
-                "absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent px-4 pb-4 pt-16 transition-opacity duration-300",
-                "opacity-0 group-hover:opacity-100"
-              )}>
+              <div
+                className={cn(
+                  "absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent px-4 pb-4 pt-16 transition-opacity duration-300",
+                  "opacity-0 group-hover:opacity-100"
+                )}
+                onClick={(e) => e.stopPropagation()}
+              >
                 {/* Progress bar */}
                 <div
                   className="group/progress relative mb-3 cursor-pointer"
@@ -451,7 +523,7 @@ export default function RecordingDetailPage({
                 <div className="flex items-center gap-2">
                   {/* Play / Pause */}
                   <button
-                    onClick={() => setIsPlaying(!isPlaying)}
+                    onClick={togglePlay}
                     className="flex h-8 w-8 items-center justify-center rounded-full text-white transition-colors hover:bg-white/15"
                   >
                     {isPlaying ? (
@@ -463,11 +535,11 @@ export default function RecordingDetailPage({
 
                   {/* Skip forward */}
                   <button
-                    onClick={() =>
-                      setCurrentTime((t) =>
-                        Math.min(t + 10, recording.duration)
-                      )
-                    }
+                    onClick={() => {
+                      const newTime = Math.min(currentTime + 10, videoDuration);
+                      setCurrentTime(newTime);
+                      if (videoRef.current) videoRef.current.currentTime = newTime;
+                    }}
                     className="flex h-8 w-8 items-center justify-center rounded-full text-white/70 transition-colors hover:bg-white/15 hover:text-white"
                   >
                     <SkipForward className="h-4 w-4" />
@@ -489,7 +561,7 @@ export default function RecordingDetailPage({
                   <span className="ml-1 text-xs font-medium tabular-nums text-white/70">
                     {formatTimestamp(currentTime)}{" "}
                     <span className="text-white/40">/</span>{" "}
-                    {formatDuration(recording.duration)}
+                    {formatDuration(videoDuration)}
                   </span>
 
                   <div className="flex-1" />
@@ -503,12 +575,31 @@ export default function RecordingDetailPage({
                   </button>
 
                   {/* PiP */}
-                  <button className="flex h-8 w-8 items-center justify-center rounded-full text-white/70 transition-colors hover:bg-white/15 hover:text-white">
+                  <button
+                    onClick={() => {
+                      if (videoRef.current && document.pictureInPictureEnabled) {
+                        videoRef.current.requestPictureInPicture();
+                      }
+                    }}
+                    className="flex h-8 w-8 items-center justify-center rounded-full text-white/70 transition-colors hover:bg-white/15 hover:text-white"
+                  >
                     <PictureInPicture2 className="h-4 w-4" />
                   </button>
 
                   {/* Fullscreen */}
-                  <button className="flex h-8 w-8 items-center justify-center rounded-full text-white/70 transition-colors hover:bg-white/15 hover:text-white">
+                  <button
+                    onClick={() => {
+                      const container = videoRef.current?.closest(".group");
+                      if (container) {
+                        if (document.fullscreenElement) {
+                          document.exitFullscreen();
+                        } else {
+                          container.requestFullscreen();
+                        }
+                      }
+                    }}
+                    className="flex h-8 w-8 items-center justify-center rounded-full text-white/70 transition-colors hover:bg-white/15 hover:text-white"
+                  >
                     <Maximize className="h-4 w-4" />
                   </button>
                 </div>

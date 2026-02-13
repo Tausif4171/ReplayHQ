@@ -246,35 +246,85 @@ export default function UploadPage() {
   const [publishedRecordingId, setPublishedRecordingId] = useState<string | null>(null);
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
+  const [objectKey, setObjectKey] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   const [seriesOptions, setSeriesOptions] = useState<SeriesOption[]>([]);
 
   const tagInputRef = useRef<HTMLInputElement>(null);
+  const xhrRef = useRef<XMLHttpRequest | null>(null);
 
-  /* ---- Upload simulation ---- */
+  /* ---- Real upload to MinIO ---- */
   useEffect(() => {
-    if (!file || isUploaded) return;
+    if (!file || isUploaded || objectKey) return;
 
-    const duration = 3000; // 3 seconds
-    const interval = 50;
-    const step = 100 / (duration / interval);
-    let progress = 0;
+    let cancelled = false;
+    setUploadError(null);
 
-    const timer = setInterval(() => {
-      progress = Math.min(progress + step, 100);
-      setUploadProgress(Math.round(progress));
+    async function uploadFile() {
+      try {
+        // 1. Get presigned upload URL from our API
+        const res = await fetch("/api/upload", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ filename: file!.name }),
+        });
 
-      if (progress >= 100) {
-        clearInterval(timer);
-        // small delay before marking upload as complete
-        setTimeout(() => {
+        if (!res.ok) {
+          throw new Error("Failed to get upload URL");
+        }
+
+        const { presignedUrl, objectKey: key } = await res.json();
+        if (cancelled) return;
+
+        // 2. Upload file directly to MinIO via presigned PUT
+        await new Promise<void>((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhrRef.current = xhr;
+
+          xhr.upload.addEventListener("progress", (e) => {
+            if (e.lengthComputable && !cancelled) {
+              setUploadProgress(Math.round((e.loaded / e.total) * 100));
+            }
+          });
+
+          xhr.addEventListener("load", () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              resolve();
+            } else {
+              reject(new Error(`Upload failed with status ${xhr.status}`));
+            }
+          });
+
+          xhr.addEventListener("error", () => reject(new Error("Upload failed")));
+          xhr.addEventListener("abort", () => reject(new Error("Upload cancelled")));
+
+          xhr.open("PUT", presignedUrl);
+          xhr.setRequestHeader("Content-Type", file!.type || "video/mp4");
+          xhr.send(file!);
+        });
+
+        if (!cancelled) {
+          setObjectKey(key);
           setIsUploaded(true);
-        }, 300);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setUploadError(err instanceof Error ? err.message : "Upload failed");
+          setUploadProgress(0);
+        }
+      } finally {
+        xhrRef.current = null;
       }
-    }, interval);
+    }
 
-    return () => clearInterval(timer);
-  }, [file, isUploaded]);
+    uploadFile();
+
+    return () => {
+      cancelled = true;
+      xhrRef.current?.abort();
+    };
+  }, [file, isUploaded, objectKey]);
 
   /* ---- Auto-advance to step 2 when upload completes ---- */
   useEffect(() => {
@@ -337,9 +387,12 @@ export default function UploadPage() {
 
   /* ---- File removal ---- */
   const removeFile = () => {
+    xhrRef.current?.abort();
     setFile(null);
     setUploadProgress(0);
     setIsUploaded(false);
+    setObjectKey(null);
+    setUploadError(null);
     setTitle("");
   };
 
@@ -361,7 +414,7 @@ export default function UploadPage() {
         body: JSON.stringify({
           title: title.trim(),
           description: description.trim() || undefined,
-          videoUrl: "pending-upload",
+          videoUrl: objectKey || "pending-upload",
           duration: 0,
           seriesId: series || undefined,
           tags,
@@ -398,6 +451,8 @@ export default function UploadPage() {
     setFile(null);
     setUploadProgress(0);
     setIsUploaded(false);
+    setObjectKey(null);
+    setUploadError(null);
     setTitle("");
     setDescription("");
     setSeries("");
@@ -554,20 +609,31 @@ export default function UploadPage() {
                 <div className="mt-5 space-y-2">
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">
-                      {isUploaded ? "Upload complete" : "Uploading..."}
+                      {uploadError
+                        ? "Upload failed"
+                        : isUploaded
+                          ? "Upload complete"
+                          : "Uploading..."}
                     </span>
                     <span className="font-medium tabular-nums">
-                      {uploadProgress}%
+                      {uploadError ? "" : `${uploadProgress}%`}
                     </span>
                   </div>
                   <Progress
-                    value={uploadProgress}
+                    value={uploadError ? 0 : uploadProgress}
                     className={cn(
                       "h-2 transition-all",
-                      isUploaded && "[&>div]:bg-green-500"
+                      isUploaded && "[&>div]:bg-green-500",
+                      uploadError && "[&>div]:bg-destructive"
                     )}
                   />
                 </div>
+
+                {uploadError && (
+                  <p className="mt-3 text-sm text-destructive">
+                    {uploadError}. Please remove the file and try again.
+                  </p>
+                )}
 
                 {isUploaded && (
                   <p className="mt-3 flex items-center gap-1.5 text-sm font-medium text-green-600 dark:text-green-400">

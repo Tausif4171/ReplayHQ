@@ -8,7 +8,7 @@ import prisma from "@/lib/prisma";
 const ZOOM_AUTH_URL = "https://zoom.us/oauth/authorize";
 const ZOOM_TOKEN_URL = "https://zoom.us/oauth/token";
 const ZOOM_API_BASE = "https://api.zoom.us/v2";
-const ZOOM_SCOPES = "cloud_recording:read:list_user_recordings:admin";
+const ZOOM_SCOPES = "cloud_recording:read:list_user_recordings cloud_recording:read:list_recording_files user:read:user";
 
 // ---------------------------------------------------------------------------
 // Types

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { getInitials } from "@/lib/utils";
 import {
@@ -12,6 +13,11 @@ import {
   Sun,
   Moon,
   Monitor,
+  Link2,
+  Video,
+  Check,
+  Loader2,
+  ExternalLink,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -68,14 +74,79 @@ const themes: { id: Theme; label: string; icon: React.ReactNode }[] = [
 ];
 
 export default function SettingsPage() {
+  const searchParams = useSearchParams();
   const [name, setName] = useState("Tausif Khan");
   const [notifications, setNotifications] = useState(initialNotifications);
   const [selectedTheme, setSelectedTheme] = useState<Theme>("dark");
+
+  // Zoom integration state
+  const [zoomConnected, setZoomConnected] = useState(false);
+  const [zoomLoading, setZoomLoading] = useState(true);
+  const [disconnecting, setDisconnecting] = useState(false);
+  const [zoomMessage, setZoomMessage] = useState<{
+    type: "success" | "error";
+    text: string;
+  } | null>(null);
+
+  // Check Zoom connection status on mount
+  useEffect(() => {
+    fetch("/api/zoom/status")
+      .then((res) => res.json())
+      .then((data) => {
+        setZoomConnected(data.connected);
+        setZoomLoading(false);
+      })
+      .catch(() => setZoomLoading(false));
+  }, []);
+
+  // Handle Zoom callback query params
+  useEffect(() => {
+    const zoomParam = searchParams.get("zoom");
+    if (zoomParam === "connected") {
+      setZoomConnected(true);
+      setZoomMessage({
+        type: "success",
+        text: "Zoom account connected successfully!",
+      });
+      // Clean up URL
+      window.history.replaceState({}, "", "/settings");
+    } else if (zoomParam === "error") {
+      const reason = searchParams.get("reason") || "unknown";
+      setZoomMessage({
+        type: "error",
+        text: `Failed to connect Zoom: ${reason.replace(/_/g, " ")}`,
+      });
+      window.history.replaceState({}, "", "/settings");
+    }
+  }, [searchParams]);
 
   const toggleNotification = (id: string) => {
     setNotifications((prev) =>
       prev.map((n) => (n.id === id ? { ...n, enabled: !n.enabled } : n))
     );
+  };
+
+  const connectZoom = () => {
+    window.location.href = "/api/zoom/connect";
+  };
+
+  const disconnectZoom = async () => {
+    setDisconnecting(true);
+    try {
+      await fetch("/api/zoom/disconnect", { method: "POST" });
+      setZoomConnected(false);
+      setZoomMessage({
+        type: "success",
+        text: "Zoom account disconnected.",
+      });
+    } catch {
+      setZoomMessage({
+        type: "error",
+        text: "Failed to disconnect Zoom.",
+      });
+    } finally {
+      setDisconnecting(false);
+    }
   };
 
   return (
@@ -144,6 +215,104 @@ export default function SettingsPage() {
                     </Badge>
                   </div>
                 </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Integrations */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Link2 className="h-5 w-5 text-muted-foreground" />
+              <CardTitle>Integrations</CardTitle>
+            </div>
+            <CardDescription>
+              Connect external services to import recordings
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {/* Zoom message banner */}
+            {zoomMessage && (
+              <div
+                className={cn(
+                  "mb-4 flex items-center gap-2 rounded-lg px-4 py-3 text-sm",
+                  zoomMessage.type === "success"
+                    ? "bg-green-500/10 text-green-400"
+                    : "bg-destructive/10 text-destructive"
+                )}
+              >
+                {zoomMessage.type === "success" ? (
+                  <Check className="h-4 w-4 shrink-0" />
+                ) : (
+                  <Info className="h-4 w-4 shrink-0" />
+                )}
+                {zoomMessage.text}
+                <button
+                  onClick={() => setZoomMessage(null)}
+                  className="ml-auto text-xs opacity-60 hover:opacity-100"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+
+            <div className="flex items-start gap-4 sm:items-center">
+              {/* Zoom icon */}
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-blue-500/10">
+                <Video className="h-6 w-6 text-blue-400" />
+              </div>
+
+              {/* Info */}
+              <div className="flex-1 space-y-1">
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium">Zoom</p>
+                  {zoomLoading ? (
+                    <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                  ) : zoomConnected ? (
+                    <Badge className="bg-green-500/15 text-green-400 hover:bg-green-500/20 text-[10px] px-1.5 py-0">
+                      Connected
+                    </Badge>
+                  ) : (
+                    <Badge
+                      variant="secondary"
+                      className="text-[10px] px-1.5 py-0"
+                    >
+                      Not connected
+                    </Badge>
+                  )}
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Import cloud recordings directly from your Zoom account
+                </p>
+              </div>
+
+              {/* Action button */}
+              <div className="shrink-0">
+                {zoomLoading ? (
+                  <Button variant="outline" size="sm" disabled>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Checking...
+                  </Button>
+                ) : zoomConnected ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={disconnectZoom}
+                    disabled={disconnecting}
+                    className="text-destructive hover:text-destructive"
+                  >
+                    {disconnecting ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : null}
+                    Disconnect
+                  </Button>
+                ) : (
+                  <Button variant="outline" size="sm" onClick={connectZoom}>
+                    <ExternalLink className="mr-2 h-4 w-4" />
+                    Connect Zoom
+                  </Button>
+                )}
               </div>
             </div>
           </CardContent>

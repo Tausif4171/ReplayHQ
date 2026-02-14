@@ -1,0 +1,80 @@
+import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/lib/auth";
+import { getZoomAccount, listZoomRecordings } from "@/lib/zoom";
+import type { ZoomMeetingSummary, ZoomFileSummary } from "@/lib/zoom";
+
+function defaultFromDate(): string {
+  const d = new Date();
+  d.setDate(d.getDate() - 30);
+  return d.toISOString().split("T")[0];
+}
+
+function todayISO(): string {
+  return new Date().toISOString().split("T")[0];
+}
+
+export async function GET(request: NextRequest) {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const account = await getZoomAccount(session.user.id);
+  if (!account) {
+    return NextResponse.json(
+      { error: "Zoom not connected" },
+      { status: 400 }
+    );
+  }
+
+  const { searchParams } = new URL(request.url);
+  const from = searchParams.get("from") || defaultFromDate();
+  const to = searchParams.get("to") || todayISO();
+  const pageToken = searchParams.get("page_token") || undefined;
+
+  try {
+    const recordings = await listZoomRecordings(
+      session.user.id,
+      from,
+      to,
+      30,
+      pageToken
+    );
+
+    // Filter to MP4 files only, strip download URLs (security)
+    const meetings: ZoomMeetingSummary[] = (recordings.meetings || []).map(
+      (meeting) => ({
+        id: meeting.uuid,
+        meetingId: meeting.id,
+        topic: meeting.topic,
+        startTime: meeting.start_time,
+        duration: meeting.duration,
+        totalSize: meeting.total_size,
+        recordingFiles: (meeting.recording_files || [])
+          .filter((f) => f.file_type === "MP4")
+          .map(
+            (f): ZoomFileSummary => ({
+              id: f.id,
+              fileType: f.file_type,
+              fileSize: f.file_size,
+              recordingType: f.recording_type,
+              recordingStart: f.recording_start,
+              recordingEnd: f.recording_end,
+            })
+          ),
+      })
+    );
+
+    return NextResponse.json({
+      meetings: meetings.filter((m) => m.recordingFiles.length > 0),
+      nextPageToken: recordings.next_page_token || null,
+      totalRecords: recordings.total_records,
+    });
+  } catch (error) {
+    console.error("Failed to fetch Zoom recordings:", error);
+    return NextResponse.json(
+      { error: "Failed to fetch Zoom recordings" },
+      { status: 500 }
+    );
+  }
+}

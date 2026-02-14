@@ -19,7 +19,13 @@ import {
   ArrowRight,
   ArrowLeft,
   Loader2,
+  Video,
+  Clock,
+  HardDrive,
+  RefreshCw,
+  ExternalLink,
 } from "lucide-react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -39,6 +45,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                          */
@@ -232,6 +239,25 @@ interface SeriesOption {
   _count: { recordings: number };
 }
 
+interface ZoomFileSummary {
+  id: string;
+  fileType: string;
+  fileSize: number;
+  recordingType: string;
+  recordingStart: string;
+  recordingEnd: string;
+}
+
+interface ZoomMeetingSummary {
+  id: string;
+  meetingId: number;
+  topic: string;
+  startTime: string;
+  duration: number; // minutes
+  totalSize: number;
+  recordingFiles: ZoomFileSummary[];
+}
+
 export default function UploadPage() {
   const router = useRouter();
 
@@ -268,6 +294,14 @@ export default function UploadPage() {
   const [uploadError, setUploadError] = useState<string | null>(null);
 
   const [seriesOptions, setSeriesOptions] = useState<SeriesOption[]>([]);
+
+  // Zoom import state
+  const [importSource, setImportSource] = useState<"upload" | "zoom">("upload");
+  const [zoomConnected, setZoomConnected] = useState<boolean | null>(null);
+  const [zoomRecordings, setZoomRecordings] = useState<ZoomMeetingSummary[]>([]);
+  const [zoomLoading, setZoomLoading] = useState(false);
+  const [selectedZoomMeeting, setSelectedZoomMeeting] = useState<ZoomMeetingSummary | null>(null);
+  const [selectedZoomFile, setSelectedZoomFile] = useState<ZoomFileSummary | null>(null);
 
   const tagInputRef = useRef<HTMLInputElement>(null);
   const thumbInputRef = useRef<HTMLInputElement>(null);
@@ -569,6 +603,14 @@ export default function UploadPage() {
       .catch(() => setSeriesOptions([]));
   }, []);
 
+  /* ---- Check Zoom connection ---- */
+  useEffect(() => {
+    fetch("/api/zoom/status")
+      .then((res) => res.json())
+      .then((data) => setZoomConnected(data.connected))
+      .catch(() => setZoomConnected(false));
+  }, []);
+
   /* ---- Dropzone ---- */
   const onDrop = useCallback(
     (acceptedFiles: File[]) => {
@@ -641,6 +683,42 @@ export default function UploadPage() {
     setUseCustomThumb(false);
   };
 
+  /* ---- Fetch Zoom recordings ---- */
+  const fetchZoomRecordings = async () => {
+    setZoomLoading(true);
+    try {
+      const res = await fetch("/api/zoom/recordings");
+      if (res.ok) {
+        const data = await res.json();
+        setZoomRecordings(data.meetings || []);
+      }
+    } catch {
+      // Silently fail
+    } finally {
+      setZoomLoading(false);
+    }
+  };
+
+  /* ---- Select a Zoom recording to import ---- */
+  const selectZoomRecording = (meeting: ZoomMeetingSummary) => {
+    setSelectedZoomMeeting(meeting);
+    // Auto-select the first MP4 file
+    setSelectedZoomFile(meeting.recordingFiles[0] || null);
+    // Pre-fill form fields
+    setTitle(meeting.topic || "");
+    if (meeting.startTime) {
+      setRecordingDate(meeting.startTime.split("T")[0]);
+    }
+    setVideoDuration(meeting.duration * 60); // convert minutes to seconds
+  };
+
+  /* ---- Continue from Zoom selection to step 2 ---- */
+  const continueFromZoom = () => {
+    if (!selectedZoomMeeting || !selectedZoomFile) return;
+    setImportSource("zoom");
+    setCurrentStep(2);
+  };
+
   /* ---- Navigation ---- */
   const goNext = () =>
     setCurrentStep((prev) => Math.min(prev + 1, 4) as 1 | 2 | 3);
@@ -653,6 +731,41 @@ export default function UploadPage() {
     setPublishError(null);
 
     try {
+      if (importSource === "zoom" && selectedZoomMeeting && selectedZoomFile) {
+        // Zoom import flow
+        const res = await fetch("/api/zoom/import", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            meetingUuid: selectedZoomMeeting.id,
+            recordingFileId: selectedZoomFile.id,
+            title: title.trim(),
+            description: description.trim() || undefined,
+            seriesId: series || undefined,
+            tags,
+          }),
+        });
+
+        const text = await res.text();
+        let data: any;
+        try {
+          data = JSON.parse(text);
+        } catch {
+          throw new Error("Server returned an unexpected response");
+        }
+
+        if (!res.ok) {
+          throw new Error(data.error || "Failed to import recording");
+        }
+
+        setPublishedRecordingId(data.id);
+        setIsPublished(true);
+        setCurrentStep(4 as number);
+        return; // Skip the rest of handlePublish
+      }
+
+      // Original file upload flow continues below...
+
       // Upload selected thumbnail to MinIO
       let uploadedThumbKey = thumbnailKey;
       if (!uploadedThumbKey) {
@@ -767,6 +880,9 @@ export default function UploadPage() {
     setIsPublished(false);
     setPublishedRecordingId(null);
     setPublishError(null);
+    setImportSource("upload");
+    setSelectedZoomMeeting(null);
+    setSelectedZoomFile(null);
   };
 
   /* ================================================================ */
@@ -791,8 +907,9 @@ export default function UploadPage() {
             Recording Published!
           </h2>
           <p className="mx-auto mb-8 max-w-md text-muted-foreground">
-            Your recording is being processed. AI transcription and summary will
-            be ready in a few minutes.
+            {importSource === "zoom"
+              ? "Your Zoom recording is being imported. It will be available in a few minutes."
+              : "Your recording is being processed. AI transcription and summary will be ready in a few minutes."}
           </p>
 
           <div className="flex gap-3">
@@ -828,135 +945,299 @@ export default function UploadPage() {
       <Stepper currentStep={currentStep} className="mb-10" />
 
       {/* ============================================================= */}
-      {/*  STEP 1 - Upload File                                         */}
+      {/*  STEP 1 - Upload File / Import from Zoom                       */}
       {/* ============================================================= */}
       {currentStep === 1 && (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-          {!file ? (
-            /* --- Dropzone --- */
-            <div
-              {...getRootProps()}
-              className={cn(
-                "group relative flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-20 text-center transition-all duration-300",
-                isDragActive
-                  ? "border-primary bg-primary/5 shadow-lg shadow-primary/5"
-                  : "border-border bg-card hover:border-primary/50 hover:bg-primary/[0.02]"
-              )}
-            >
-              <input {...getInputProps()} />
-
-              <div
-                className={cn(
-                  "mb-5 flex h-16 w-16 items-center justify-center rounded-2xl transition-all duration-300",
-                  isDragActive
-                    ? "bg-primary/15 text-primary scale-110"
-                    : "bg-muted text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary"
-                )}
+          <Tabs defaultValue="upload" className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="upload" className="gap-2">
+                <UploadCloud className="h-4 w-4" />
+                Upload File
+              </TabsTrigger>
+              <TabsTrigger
+                value="zoom"
+                className="gap-2"
+                onClick={() => {
+                  if (zoomConnected && zoomRecordings.length === 0) {
+                    fetchZoomRecordings();
+                  }
+                }}
               >
-                <UploadCloud className="h-8 w-8" />
-              </div>
+                <Video className="h-4 w-4" />
+                Import from Zoom
+              </TabsTrigger>
+            </TabsList>
 
-              <p className="mb-1 text-base font-medium">
-                {isDragActive
-                  ? "Drop your recording here"
-                  : "Drag & drop your recording here"}
-              </p>
-
-              <p className="mb-5 text-sm text-muted-foreground">or</p>
-
-              <Button
-                type="button"
-                size="lg"
-                className="pointer-events-none shadow-md"
-              >
-                Browse Files
-              </Button>
-
-              <p className="mt-5 text-xs text-muted-foreground">
-                MP4, WebM, MOV up to 5GB
-              </p>
-            </div>
-          ) : (
-            /* --- File selected / uploading --- */
-            <Card className="overflow-hidden">
-              <CardContent className="p-6">
-                <div className="flex items-start gap-4">
-                  {/* File icon */}
-                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                    <FileVideo className="h-6 w-6" />
-                  </div>
-
-                  {/* File info */}
-                  <div className="flex-1 space-y-1">
-                    <p className="font-medium leading-tight">{file.name}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {formatFileSize(file.size)} &middot; {file.type.split("/")[1]?.toUpperCase() ?? "VIDEO"}
-                    </p>
-                  </div>
-
-                  {/* Remove button */}
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="shrink-0 text-muted-foreground hover:text-destructive"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      removeFile();
-                    }}
+            {/* Upload File Tab */}
+            <TabsContent value="upload" className="mt-6">
+              {!file ? (
+                /* --- Dropzone --- */
+                <div
+                  {...getRootProps()}
+                  className={cn(
+                    "group relative flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-20 text-center transition-all duration-300",
+                    isDragActive
+                      ? "border-primary bg-primary/5 shadow-lg shadow-primary/5"
+                      : "border-border bg-card hover:border-primary/50 hover:bg-primary/[0.02]"
+                  )}
+                >
+                  <input {...getInputProps()} />
+                  <div
+                    className={cn(
+                      "mb-5 flex h-16 w-16 items-center justify-center rounded-2xl transition-all duration-300",
+                      isDragActive
+                        ? "bg-primary/15 text-primary scale-110"
+                        : "bg-muted text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary"
+                    )}
                   >
-                    <X className="h-4 w-4" />
+                    <UploadCloud className="h-8 w-8" />
+                  </div>
+                  <p className="mb-1 text-base font-medium">
+                    {isDragActive
+                      ? "Drop your recording here"
+                      : "Drag & drop your recording here"}
+                  </p>
+                  <p className="mb-5 text-sm text-muted-foreground">or</p>
+                  <Button
+                    type="button"
+                    size="lg"
+                    className="pointer-events-none shadow-md"
+                  >
+                    Browse Files
+                  </Button>
+                  <p className="mt-5 text-xs text-muted-foreground">
+                    MP4, WebM, MOV up to 5GB
+                  </p>
+                </div>
+              ) : (
+                /* --- File selected / uploading --- */
+                <Card className="overflow-hidden">
+                  <CardContent className="p-6">
+                    <div className="flex items-start gap-4">
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                        <FileVideo className="h-6 w-6" />
+                      </div>
+                      <div className="flex-1 space-y-1">
+                        <p className="font-medium leading-tight">{file.name}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {formatFileSize(file.size)} &middot; {file.type.split("/")[1]?.toUpperCase() ?? "VIDEO"}
+                        </p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="shrink-0 text-muted-foreground hover:text-destructive"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeFile();
+                        }}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    <div className="mt-5 space-y-2">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">
+                          {uploadError
+                            ? "Upload failed"
+                            : isUploaded
+                              ? "Upload complete"
+                              : "Uploading..."}
+                        </span>
+                        <span className="font-medium tabular-nums">
+                          {uploadError ? "" : `${uploadProgress}%`}
+                        </span>
+                      </div>
+                      <Progress
+                        value={uploadError ? 0 : uploadProgress}
+                        className={cn(
+                          "h-2 transition-all",
+                          isUploaded && "[&>div]:bg-green-500",
+                          uploadError && "[&>div]:bg-destructive"
+                        )}
+                      />
+                    </div>
+                    {uploadError && (
+                      <p className="mt-3 text-sm text-destructive">
+                        {uploadError}. Please remove the file and try again.
+                      </p>
+                    )}
+                    {isUploaded && (
+                      <p className="mt-3 flex items-center gap-1.5 text-sm font-medium text-green-600 dark:text-green-400">
+                        <CheckCircle className="h-4 w-4" />
+                        Ready to continue
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Step 1 navigation for file upload */}
+              {isUploaded && (
+                <div className="flex justify-end animate-in fade-in slide-in-from-bottom-2 duration-300">
+                  <Button onClick={() => { setImportSource("upload"); goNext(); }} size="lg">
+                    Continue to Details
+                    <ArrowRight className="ml-1 h-4 w-4" />
                   </Button>
                 </div>
+              )}
+            </TabsContent>
 
-                {/* Progress */}
-                <div className="mt-5 space-y-2">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">
-                      {uploadError
-                        ? "Upload failed"
-                        : isUploaded
-                          ? "Upload complete"
-                          : "Uploading..."}
-                    </span>
-                    <span className="font-medium tabular-nums">
-                      {uploadError ? "" : `${uploadProgress}%`}
-                    </span>
-                  </div>
-                  <Progress
-                    value={uploadError ? 0 : uploadProgress}
-                    className={cn(
-                      "h-2 transition-all",
-                      isUploaded && "[&>div]:bg-green-500",
-                      uploadError && "[&>div]:bg-destructive"
-                    )}
-                  />
+            {/* Import from Zoom Tab */}
+            <TabsContent value="zoom" className="mt-6">
+              {zoomConnected === null ? (
+                /* Loading state */
+                <div className="flex flex-col items-center justify-center py-16">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                  <p className="mt-3 text-sm text-muted-foreground">Checking Zoom connection...</p>
                 </div>
-
-                {uploadError && (
-                  <p className="mt-3 text-sm text-destructive">
-                    {uploadError}. Please remove the file and try again.
+              ) : !zoomConnected ? (
+                /* Not connected */
+                <div className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-border bg-card py-16 text-center">
+                  <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-500/10">
+                    <Video className="h-8 w-8 text-blue-400" />
+                  </div>
+                  <h3 className="mb-2 text-base font-medium">Connect Zoom to import recordings</h3>
+                  <p className="mx-auto mb-6 max-w-sm text-sm text-muted-foreground">
+                    Link your Zoom account to import cloud recordings directly — no manual download needed.
                   </p>
-                )}
+                  <Button asChild variant="outline" size="lg">
+                    <Link href="/settings">
+                      <ExternalLink className="mr-2 h-4 w-4" />
+                      Connect Zoom in Settings
+                    </Link>
+                  </Button>
+                </div>
+              ) : (
+                /* Connected — show recordings */
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-sm font-medium">Your Zoom Cloud Recordings</h3>
+                      <p className="text-xs text-muted-foreground">Last 30 days</p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={fetchZoomRecordings}
+                      disabled={zoomLoading}
+                    >
+                      <RefreshCw className={cn("mr-2 h-3.5 w-3.5", zoomLoading && "animate-spin")} />
+                      Refresh
+                    </Button>
+                  </div>
 
-                {isUploaded && (
-                  <p className="mt-3 flex items-center gap-1.5 text-sm font-medium text-green-600 dark:text-green-400">
-                    <CheckCircle className="h-4 w-4" />
-                    Ready to continue
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          )}
+                  {zoomLoading ? (
+                    <div className="flex flex-col items-center justify-center py-12">
+                      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                      <p className="mt-3 text-sm text-muted-foreground">Loading recordings from Zoom...</p>
+                    </div>
+                  ) : zoomRecordings.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-card py-12 text-center">
+                      <Video className="mb-3 h-8 w-8 text-muted-foreground" />
+                      <p className="text-sm font-medium">No cloud recordings found</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Make sure you have cloud recording enabled in your Zoom settings
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {zoomRecordings.map((meeting) => (
+                        <button
+                          key={meeting.id}
+                          type="button"
+                          onClick={() => selectZoomRecording(meeting)}
+                          className={cn(
+                            "w-full rounded-xl border p-4 text-left transition-all duration-200",
+                            selectedZoomMeeting?.id === meeting.id
+                              ? "border-primary bg-primary/5 ring-2 ring-primary/20"
+                              : "border-border bg-card hover:border-primary/30"
+                          )}
+                        >
+                          <div className="flex items-start gap-3">
+                            {/* Radio indicator */}
+                            <div className={cn(
+                              "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors",
+                              selectedZoomMeeting?.id === meeting.id
+                                ? "border-primary bg-primary"
+                                : "border-muted-foreground/30"
+                            )}>
+                              {selectedZoomMeeting?.id === meeting.id && (
+                                <div className="h-2 w-2 rounded-full bg-white" />
+                              )}
+                            </div>
 
-          {/* Step 1 navigation */}
-          {isUploaded && (
-            <div className="flex justify-end animate-in fade-in slide-in-from-bottom-2 duration-300">
-              <Button onClick={goNext} size="lg">
-                Continue to Details
-                <ArrowRight className="ml-1 h-4 w-4" />
-              </Button>
-            </div>
-          )}
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium text-sm truncate">{meeting.topic}</p>
+                              <div className="mt-1.5 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                                <span className="flex items-center gap-1">
+                                  <Calendar className="h-3 w-3" />
+                                  {new Date(meeting.startTime).toLocaleDateString("en-US", {
+                                    month: "short",
+                                    day: "numeric",
+                                    year: "numeric",
+                                  })}
+                                </span>
+                                <span className="flex items-center gap-1">
+                                  <Clock className="h-3 w-3" />
+                                  {meeting.duration} min
+                                </span>
+                                <span className="flex items-center gap-1">
+                                  <HardDrive className="h-3 w-3" />
+                                  {formatFileSize(meeting.recordingFiles.reduce((acc, f) => acc + f.fileSize, 0))}
+                                </span>
+                              </div>
+
+                              {/* Recording file variants */}
+                              {meeting.recordingFiles.length > 1 && selectedZoomMeeting?.id === meeting.id && (
+                                <div className="mt-3 space-y-1.5">
+                                  <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Select view:</p>
+                                  <div className="flex flex-wrap gap-2">
+                                    {meeting.recordingFiles.map((rf) => (
+                                      <button
+                                        key={rf.id}
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setSelectedZoomFile(rf);
+                                        }}
+                                        className={cn(
+                                          "rounded-lg border px-3 py-1.5 text-xs font-medium transition-all",
+                                          selectedZoomFile?.id === rf.id
+                                            ? "border-primary bg-primary/10 text-primary"
+                                            : "border-border text-muted-foreground hover:border-primary/30"
+                                        )}
+                                      >
+                                        {rf.recordingType.replace(/_/g, " ")}
+                                        <span className="ml-1.5 text-[10px] opacity-60">
+                                          ({formatFileSize(rf.fileSize)})
+                                        </span>
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Continue button */}
+                  {selectedZoomMeeting && selectedZoomFile && (
+                    <div className="flex justify-end animate-in fade-in slide-in-from-bottom-2 duration-300">
+                      <Button onClick={continueFromZoom} size="lg">
+                        Continue to Details
+                        <ArrowRight className="ml-1 h-4 w-4" />
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
         </div>
       )}
 
@@ -1075,111 +1356,124 @@ export default function UploadPage() {
                   Thumbnail
                 </label>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Choose from auto-generated options or upload your own
+                  {importSource === "zoom"
+                    ? "Thumbnail will be auto-generated after the recording is imported"
+                    : "Choose from auto-generated options or upload your own"}
                 </p>
               </div>
 
-              {/* Hidden file input for custom thumbnail */}
-              <input
-                ref={thumbInputRef}
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                className="hidden"
-                onChange={handleCustomThumbUpload}
-              />
+              {importSource === "zoom" ? (
+                <div className="flex aspect-video max-w-[200px] items-center justify-center rounded-lg border-2 border-dashed border-border bg-muted/50">
+                  <div className="text-center">
+                    <Video className="mx-auto h-6 w-6 text-muted-foreground" />
+                    <p className="mt-1.5 text-[11px] text-muted-foreground">Auto-generated</p>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {/* Hidden file input for custom thumbnail */}
+                  <input
+                    ref={thumbInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    className="hidden"
+                    onChange={handleCustomThumbUpload}
+                  />
 
-              {/* Auto-generated candidates + upload option */}
-              <div className="grid grid-cols-4 gap-3">
-                {thumbnailCandidates.length === 0
-                  ? /* Loading skeletons */
-                    [0, 1, 2].map((i) => (
-                      <div
-                        key={i}
-                        className="flex aspect-video items-center justify-center rounded-lg border-2 border-dashed border-border bg-muted/50"
-                      >
-                        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                      </div>
-                    ))
-                  : /* Generated thumbnails */
-                    thumbnailCandidates.map((candidate, idx) => (
+                  {/* Auto-generated candidates + upload option */}
+                  <div className="grid grid-cols-4 gap-3">
+                    {thumbnailCandidates.length === 0
+                      ? /* Loading skeletons */
+                        [0, 1, 2].map((i) => (
+                          <div
+                            key={i}
+                            className="flex aspect-video items-center justify-center rounded-lg border-2 border-dashed border-border bg-muted/50"
+                          >
+                            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                          </div>
+                        ))
+                      : /* Generated thumbnails */
+                        thumbnailCandidates.map((candidate, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => {
+                              setSelectedThumbIndex(idx);
+                              setUseCustomThumb(false);
+                            }}
+                            className={cn(
+                              "group/thumb relative aspect-video overflow-hidden rounded-lg border-2 transition-all duration-200",
+                              !useCustomThumb && selectedThumbIndex === idx
+                                ? "border-primary ring-2 ring-primary/20 shadow-md"
+                                : "border-border hover:border-muted-foreground/50"
+                            )}
+                          >
+                            <img
+                              src={candidate.blobUrl}
+                              alt={`Thumbnail option ${idx + 1}`}
+                              className="h-full w-full object-cover"
+                            />
+                            <div className="absolute bottom-1 right-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-white">
+                              {formatTimestamp(candidate.timestamp)}
+                            </div>
+                            {!useCustomThumb && selectedThumbIndex === idx && (
+                              <div className="absolute top-1.5 left-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-white">
+                                <Check className="h-3 w-3" />
+                              </div>
+                            )}
+                          </button>
+                        ))}
+
+                    {/* Custom upload card */}
+                    {customThumbnail ? (
                       <button
-                        key={idx}
                         type="button"
-                        onClick={() => {
-                          setSelectedThumbIndex(idx);
-                          setUseCustomThumb(false);
-                        }}
+                        onClick={() => setUseCustomThumb(true)}
                         className={cn(
                           "group/thumb relative aspect-video overflow-hidden rounded-lg border-2 transition-all duration-200",
-                          !useCustomThumb && selectedThumbIndex === idx
+                          useCustomThumb
                             ? "border-primary ring-2 ring-primary/20 shadow-md"
                             : "border-border hover:border-muted-foreground/50"
                         )}
                       >
                         <img
-                          src={candidate.blobUrl}
-                          alt={`Thumbnail option ${idx + 1}`}
+                          src={customThumbnail.previewUrl}
+                          alt="Custom thumbnail"
                           className="h-full w-full object-cover"
                         />
-                        <div className="absolute bottom-1 right-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-white">
-                          {formatTimestamp(candidate.timestamp)}
+                        <div className="absolute bottom-1 right-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                          Custom
                         </div>
-                        {!useCustomThumb && selectedThumbIndex === idx && (
+                        {useCustomThumb && (
                           <div className="absolute top-1.5 left-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-white">
                             <Check className="h-3 w-3" />
                           </div>
                         )}
+                        {/* Remove / replace button */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeCustomThumb();
+                          }}
+                          className="absolute top-1.5 right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition-opacity group-hover/thumb:opacity-100"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
                       </button>
-                    ))}
-
-                {/* Custom upload card */}
-                {customThumbnail ? (
-                  <button
-                    type="button"
-                    onClick={() => setUseCustomThumb(true)}
-                    className={cn(
-                      "group/thumb relative aspect-video overflow-hidden rounded-lg border-2 transition-all duration-200",
-                      useCustomThumb
-                        ? "border-primary ring-2 ring-primary/20 shadow-md"
-                        : "border-border hover:border-muted-foreground/50"
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => thumbInputRef.current?.click()}
+                        className="flex aspect-video flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-dashed border-border bg-muted/30 text-muted-foreground transition-all duration-200 hover:border-primary/50 hover:bg-primary/5 hover:text-primary"
+                      >
+                        <UploadCloud className="h-5 w-5" />
+                        <span className="text-[10px] font-medium">Upload</span>
+                      </button>
                     )}
-                  >
-                    <img
-                      src={customThumbnail.previewUrl}
-                      alt="Custom thumbnail"
-                      className="h-full w-full object-cover"
-                    />
-                    <div className="absolute bottom-1 right-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-white">
-                      Custom
-                    </div>
-                    {useCustomThumb && (
-                      <div className="absolute top-1.5 left-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-white">
-                        <Check className="h-3 w-3" />
-                      </div>
-                    )}
-                    {/* Remove / replace button */}
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        removeCustomThumb();
-                      }}
-                      className="absolute top-1.5 right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition-opacity group-hover/thumb:opacity-100"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => thumbInputRef.current?.click()}
-                    className="flex aspect-video flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-dashed border-border bg-muted/30 text-muted-foreground transition-all duration-200 hover:border-primary/50 hover:bg-primary/5 hover:text-primary"
-                  >
-                    <UploadCloud className="h-5 w-5" />
-                    <span className="text-[10px] font-medium">Upload</span>
-                  </button>
-                )}
-              </div>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Recording Date */}
@@ -1271,6 +1565,22 @@ export default function UploadPage() {
                     <p className="text-xs text-muted-foreground">
                       {formatFileSize(file.size)} &middot;{" "}
                       {file.type.split("/")[1]?.toUpperCase() ?? "VIDEO"}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Zoom recording info */}
+              {importSource === "zoom" && selectedZoomMeeting && (
+                <div className="flex items-center gap-3 rounded-lg bg-muted/60 p-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-500/10">
+                    <Video className="h-5 w-5 text-blue-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium">Zoom Cloud Recording</p>
+                    <p className="text-xs text-muted-foreground">
+                      {selectedZoomMeeting.topic} &middot;{" "}
+                      {selectedZoomFile ? formatFileSize(selectedZoomFile.fileSize) : ""}
                     </p>
                   </div>
                 </div>

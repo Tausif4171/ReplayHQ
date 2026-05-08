@@ -78,6 +78,7 @@ interface ApiRecording {
   } | null;
   tags: { id: string; name: string }[];
   comments: ApiComment[];
+  segments?: { startTime: number; text: string }[];
   _count?: {
     watchHistory?: number;
     bookmarks?: number;
@@ -343,25 +344,34 @@ export default function RecordingDetailPage({
     setIsPlaying(true);
   }, []);
 
+  // Real transcript from the API; falls back to mock data only when whisper
+  // hasn't run yet (e.g. seeded recordings, pending transcription).
+  const transcript: TranscriptEntry[] = useMemo(() => {
+    if (recording?.segments && recording.segments.length > 0) {
+      return recording.segments.map((s) => ({ time: s.startTime, text: s.text }));
+    }
+    return mockTranscript;
+  }, [recording?.segments]);
+
   // Filtered transcript
   const filteredTranscript = useMemo(() => {
-    if (!transcriptSearch.trim()) return mockTranscript;
+    if (!transcriptSearch.trim()) return transcript;
     const q = transcriptSearch.toLowerCase();
-    return mockTranscript.filter((entry) =>
+    return transcript.filter((entry) =>
       entry.text.toLowerCase().includes(q)
     );
-  }, [transcriptSearch]);
+  }, [transcriptSearch, transcript]);
 
   // Currently "playing" transcript entry
   const activeTranscriptIndex = useMemo(() => {
     let idx = 0;
-    for (let i = 0; i < mockTranscript.length; i++) {
-      if (mockTranscript[i].time <= currentTime) {
+    for (let i = 0; i < transcript.length; i++) {
+      if (transcript[i].time <= currentTime) {
         idx = i;
       }
     }
     return idx;
-  }, [currentTime]);
+  }, [currentTime, transcript]);
 
   // Loading state
   if (loading) {
@@ -780,7 +790,7 @@ export default function RecordingDetailPage({
                     </p>
                   )}
                   {filteredTranscript.map((entry, i) => {
-                    const originalIdx = mockTranscript.indexOf(entry);
+                    const originalIdx = transcript.indexOf(entry);
                     const isActive = originalIdx === activeTranscriptIndex;
                     return (
                       <div

@@ -20,6 +20,10 @@ export async function GET(
         },
         orderBy: { createdAt: "asc" },
       },
+      segments: {
+        orderBy: { index: "asc" },
+        select: { startTime: true, text: true },
+      },
       _count: { select: { watchHistory: true, bookmarks: true } },
     },
   });

@@ -109,7 +109,7 @@ export async function POST(request: NextRequest) {
     await transcribeQueue.add(
       "transcribe",
       { recordingId: recording.id },
-      { jobId: `transcribe:${recording.id}` }
+      { jobId: `transcribe-${recording.id}` }
     );
 
     return NextResponse.json(recording, { status: 201 });

@@ -240,7 +240,7 @@ const worker = new Worker<ZoomImportJobData>(
       await transcribeQueue.add(
         "transcribe",
         { recordingId },
-        { jobId: `transcribe:${recordingId}` }
+        { jobId: `transcribe-${recordingId}` }
       );
 
       await job.updateProgress(100);

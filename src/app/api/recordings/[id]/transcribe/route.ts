@@ -44,7 +44,7 @@ export async function POST(
   const job = await transcribeQueue.add(
     "transcribe",
     { recordingId: id },
-    { jobId: `transcribe:${id}:${Date.now()}` }
+    { jobId: `transcribe-${id}-${Date.now()}` }
   );
 
   return NextResponse.json({ enqueued: true, jobId: job.id });

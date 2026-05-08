@@ -77,12 +77,14 @@ const worker = new Worker<TranscribeJobData>(
       throw new Error(`Recording ${recordingId} not found`);
     }
 
-    // Idempotency: if we already transcribed this version of the recording,
-    // do nothing. Compares against updatedAt so a re-uploaded video re-runs.
-    if (
-      recording.transcribedAt &&
-      recording.transcribedAt >= recording.updatedAt
-    ) {
+    // Idempotency: skip if a transcript exists. To force a re-run (e.g. after
+    // a model upgrade or a corrupt source), the admin re-transcribe endpoint
+    // explicitly clears `transcribedAt` before enqueuing.
+    //
+    // We deliberately do NOT compare against `updatedAt` here: the worker's
+    // own write to the Recording row bumps `updatedAt`, which would mask
+    // every successful transcription as "stale" on retry.
+    if (recording.transcribedAt) {
       jobLog.info("already transcribed, skipping");
       return { skipped: true };
     }

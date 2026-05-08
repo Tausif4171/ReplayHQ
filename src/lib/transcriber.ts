@@ -37,12 +37,31 @@ export interface Transcriber {
  *   - The process boundary makes failures easy to diagnose: we get an exit
  *     code and stderr, not a segfault inside Node.
  */
+export interface WhisperCppOptions {
+  binaryPath?: string;
+  threads?: number;
+  /**
+   * When true (default), whisper auto-detects the source language and emits
+   * an English translation — matching the behaviour of Otter, YouTube auto-
+   * captions, and Loom. Set false to keep transcripts in the source language.
+   * Has no effect when running an English-only model (e.g. ggml-base.en.bin).
+   */
+  translateToEnglish?: boolean;
+}
+
 export class WhisperCppTranscriber implements Transcriber {
+  private readonly binaryPath: string;
+  private readonly threads: number;
+  private readonly translateToEnglish: boolean;
+
   constructor(
     private readonly modelPath: string,
-    private readonly binaryPath: string = "whisper-cli",
-    private readonly threads: number = 8
-  ) {}
+    options: WhisperCppOptions = {}
+  ) {
+    this.binaryPath = options.binaryPath ?? "whisper-cli";
+    this.threads = options.threads ?? 8;
+    this.translateToEnglish = options.translateToEnglish ?? true;
+  }
 
   async transcribe(audioPath: string): Promise<TranscriptionResult> {
     const start = Date.now();
@@ -51,14 +70,18 @@ export class WhisperCppTranscriber implements Transcriber {
     const outputPrefix = audioPath.replace(/\.[^.]+$/, "");
     const jsonPath = `${outputPrefix}.json`;
 
-    await runProcess(this.binaryPath, [
+    const args = [
       "--model", this.modelPath,
       "--file", audioPath,
       "--output-json-full",
       "--output-file", outputPrefix,
       "--threads", String(this.threads),
+      "--language", "auto",
       "--no-prints",
-    ]);
+    ];
+    if (this.translateToEnglish) args.push("--translate");
+
+    await runProcess(this.binaryPath, args);
 
     const raw = await readFile(jsonPath, "utf8");
     const parsed = JSON.parse(raw) as WhisperCppOutput;

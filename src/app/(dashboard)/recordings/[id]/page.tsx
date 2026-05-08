@@ -79,6 +79,9 @@ interface ApiRecording {
   tags: { id: string; name: string }[];
   comments: ApiComment[];
   segments?: { startTime: number; text: string }[];
+  summary?: string | null;
+  tldr?: string | null;
+  keyTakeaways?: string[] | null;
   _count?: {
     watchHistory?: number;
     bookmarks?: number;
@@ -352,6 +355,34 @@ export default function RecordingDetailPage({
     }
     return mockTranscript;
   }, [recording?.segments]);
+
+  // Real AI summary from the summarize worker; falls back to mock data when
+  // summarization hasn't run yet so seeded recordings still render.
+  //
+  // Postgres jsonb sometimes round-trips as a JSON string (depending on driver
+  // path), so we accept both an already-parsed array and a stringified one.
+  const keyTakeaways: string[] = useMemo(() => {
+    const real = recording?.keyTakeaways as unknown;
+    if (Array.isArray(real) && real.length > 0) return real as string[];
+    if (typeof real === "string") {
+      try {
+        const parsed = JSON.parse(real);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed as string[];
+      } catch {
+        // fall through to mock
+      }
+    }
+    return aiKeyTakeaways;
+  }, [recording?.keyTakeaways]);
+
+  const tldr: string = recording?.tldr || aiTldr;
+
+  const topics: string[] = useMemo(() => {
+    if (recording?.tags && recording.tags.length > 0) {
+      return recording.tags.map((t) => t.name);
+    }
+    return aiTopics;
+  }, [recording?.tags]);
 
   // Filtered transcript
   const filteredTranscript = useMemo(() => {
@@ -841,7 +872,7 @@ export default function RecordingDetailPage({
                     Key Takeaways
                   </h3>
                   <div className="space-y-2.5">
-                    {aiKeyTakeaways.map((item, i) => (
+                    {keyTakeaways.map((item, i) => (
                       <div key={i} className="flex gap-2.5">
                         <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
                         <p className="text-sm leading-relaxed text-muted-foreground">
@@ -860,7 +891,7 @@ export default function RecordingDetailPage({
                     TL;DR
                   </h3>
                   <p className="text-sm leading-relaxed text-muted-foreground">
-                    {aiTldr}
+                    {tldr}
                   </p>
                 </div>
 
@@ -872,7 +903,7 @@ export default function RecordingDetailPage({
                     Topics Covered
                   </h3>
                   <div className="flex flex-wrap gap-2">
-                    {aiTopics.map((topic) => (
+                    {topics.map((topic) => (
                       <Badge key={topic} variant="secondary">
                         {topic}
                       </Badge>

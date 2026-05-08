@@ -10,7 +10,7 @@
  */
 
 import "dotenv/config";
-import { Worker, Job } from "bullmq";
+import { Worker, Job, Queue } from "bullmq";
 import IORedis from "ioredis";
 import { PrismaClient } from "@prisma/client";
 import * as Minio from "minio";
@@ -36,6 +36,9 @@ const minioClient = new Minio.Client({
 });
 
 const BUCKET_NAME = process.env.MINIO_BUCKET || "replayhq-recordings";
+
+// Producer-side handle for chaining: Zoom import → transcribe.
+const transcribeQueue = new Queue("transcribe", { connection });
 
 // ---------------------------------------------------------------------------
 // Zoom token helpers (duplicated from src/lib/zoom.ts for standalone use)
@@ -232,6 +235,13 @@ const worker = new Worker<ZoomImportJobData>(
         where: { id: recordingId },
         data: { status: "READY" },
       });
+
+      // 6. Hand off to the transcription pipeline.
+      await transcribeQueue.add(
+        "transcribe",
+        { recordingId },
+        { jobId: `transcribe:${recordingId}` }
+      );
 
       await job.updateProgress(100);
       console.log(

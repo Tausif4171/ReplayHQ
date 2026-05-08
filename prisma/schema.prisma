@@ -18,6 +18,7 @@ enum Role {
 enum RecordingStatus {
   UPLOADING
   PROCESSING
+  TRANSCRIBING
   READY
   FAILED
 }
@@ -109,6 +110,9 @@ model Recording {
   bookmarks     Bookmark[]
   playlistItems PlaylistItem[]
   embeddings    Embedding[]
+  segments      TranscriptSegment[]
+  transcribedAt   DateTime?
+  transcriptError String?       @db.Text
   recordedAt    DateTime?       // when the actual meeting happened
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
@@ -196,6 +200,20 @@ model PlaylistItem {
 
   @@unique([playlistId, recordingId])
   @@index([playlistId])
+}
+
+model TranscriptSegment {
+  id          String    @id @default(cuid())
+  recordingId String
+  recording   Recording @relation(fields: [recordingId], references: [id], onDelete: Cascade)
+  index       Int
+  startTime   Float
+  endTime     Float
+  text        String    @db.Text
+  speaker     String?
+
+  @@unique([recordingId, index])
+  @@index([recordingId, startTime])
 }
 
 model Embedding {

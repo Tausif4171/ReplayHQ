@@ -24,7 +24,7 @@ import path from "node:path";
 import pino from "pino";
 import { extractAudio, probeDuration } from "../lib/ffmpeg";
 import { WhisperCppTranscriber, type Transcriber } from "../lib/transcriber";
-import type { TranscribeJobData } from "../lib/queue";
+import { summarizeQueue, type TranscribeJobData } from "../lib/queue";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -158,6 +158,14 @@ const worker = new Worker<TranscribeJobData>(
         }),
       ]);
       jobLog.info({ step: "persist", segments: result.segments.length }, "saved");
+
+      // Hand off to the summarization pipeline. We don't await its completion
+      // — failures there don't roll back the transcript we just saved.
+      await summarizeQueue.add(
+        "summarize",
+        { recordingId },
+        { jobId: `summarize-${recordingId}-${Date.now()}` }
+      );
 
       await job.updateProgress(100);
       return {

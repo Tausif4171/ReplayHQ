@@ -13,7 +13,8 @@
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
     "worker:zoom": "npx tsx src/workers/zoom-import.ts",
-    "worker:transcribe": "npx tsx src/workers/transcribe.ts"
+    "worker:transcribe": "npx tsx src/workers/transcribe.ts",
+    "worker:summarize": "npx tsx src/workers/summarize.ts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.7.4",

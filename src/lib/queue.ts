@@ -42,3 +42,27 @@ export const transcribeQueue = new Queue<TranscribeJobData>("transcribe", {
     removeOnFail: { age: 7 * 24 * 3600 }, // keep failures a week for debugging
   },
 });
+
+/**
+ * Summarization queue. Chained automatically by the transcribe worker on
+ * success, and exposed via the admin re-summarize endpoint. Same payload
+ * pattern as transcribe: only the recordingId travels over the wire — the
+ * worker reads everything else fresh from the DB.
+ */
+export interface SummarizeJobData {
+  recordingId: string;
+}
+
+export const summarizeQueue = new Queue<SummarizeJobData>("summarize", {
+  connection,
+  defaultJobOptions: {
+    attempts: 3,
+    backoff: {
+      type: "exponential",
+      delay: 10_000, // 10s → 40s → 160s. LLM calls finish in seconds, so we
+                     // can retry sooner than transcription.
+    },
+    removeOnComplete: { age: 24 * 3600, count: 1000 },
+    removeOnFail: { age: 7 * 24 * 3600 },
+  },
+});

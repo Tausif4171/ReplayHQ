@@ -96,7 +96,7 @@ model Recording {
   status        RecordingStatus @default(UPLOADING)
   transcript    String?         @db.Text
   summary       String?         @db.Text
-  keyTakeaways  String?         @db.Text
+  keyTakeaways  Json?           @db.JsonB
   tldr          String?         @db.Text
   presenterId   String?
   presenter     User?           @relation("presenter", fields: [presenterId], references: [id])
@@ -113,6 +113,10 @@ model Recording {
   segments      TranscriptSegment[]
   transcribedAt   DateTime?
   transcriptError String?       @db.Text
+  summarizedAt        DateTime?
+  summarizationError  String?   @db.Text
+  summaryModel        String?   // e.g. "ollama:qwen2.5:7b" — for cost / A-B reporting
+  summaryPromptVersion Int?     // bump to invalidate stale summaries on prompt edits
   recordedAt    DateTime?       // when the actual meeting happened
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt

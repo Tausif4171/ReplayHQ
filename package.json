@@ -12,7 +12,8 @@
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
-    "worker:zoom": "npx tsx src/workers/zoom-import.ts"
+    "worker:zoom": "npx tsx src/workers/zoom-import.ts",
+    "worker:transcribe": "npx tsx src/workers/transcribe.ts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.7.4",
@@ -32,12 +33,14 @@
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "dotenv": "^17.3.1",
+    "fluent-ffmpeg": "^2.1.3",
     "framer-motion": "^11.15.0",
     "ioredis": "^5.4.2",
     "lucide-react": "^0.468.0",
     "minio": "^8.0.2",
     "next": "^15.1.0",
     "next-auth": "^5.0.0-beta.25",
+    "pino": "^10.3.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-dropzone": "^14.3.5",
@@ -50,6 +53,7 @@
     "seed": "npx tsx prisma/seed.ts"
   },
   "devDependencies": {
+    "@types/fluent-ffmpeg": "^2.1.28",
     "@types/node": "^22.10.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",

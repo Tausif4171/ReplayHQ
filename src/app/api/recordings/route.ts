@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { transcribeQueue } from "@/lib/queue";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -104,6 +105,12 @@ export async function POST(request: NextRequest) {
         tags: true,
       },
     });
+
+    await transcribeQueue.add(
+      "transcribe",
+      { recordingId: recording.id },
+      { jobId: `transcribe-${recording.id}` }
+    );
 
     return NextResponse.json(recording, { status: 201 });
   } catch (error) {

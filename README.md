@@ -126,6 +126,34 @@ npm run db:push
 npm run dev
 ```
 
+### Local AI Stack (transcription)
+
+Transcription runs entirely on your machine via [whisper.cpp](https://github.com/ggerganov/whisper.cpp) — no API keys, no cost, GPU-accelerated on Apple Silicon.
+
+```bash
+# Install runtime dependencies
+brew install ffmpeg whisper-cpp
+
+# Download a whisper model (large-v3 recommended for multilingual content)
+mkdir -p ~/whisper-models
+curl -L -o ~/whisper-models/ggml-large-v3.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin
+
+# Point the worker at the model in .env
+echo 'WHISPER_MODEL_PATH="'$HOME'/whisper-models/ggml-large-v3.bin"' >> .env
+
+# In a second terminal, start the transcribe worker
+npm run worker:transcribe
+```
+
+| Model | Size | Speed (M-series) | Best for |
+|-------|------|------------------|----------|
+| `ggml-base.en.bin` | 141 MB | ~35× realtime | English-only, fastest |
+| `ggml-small.bin` | 465 MB | ~10× realtime | Multilingual, balanced |
+| `ggml-large-v3.bin` | 2.9 GB | ~4× realtime | **Recommended** — best quality, including Hindi/non-English |
+
+By default the worker auto-detects the source language and translates to English (matching Otter / YouTube auto-captions). Pass `translateToEnglish: false` to the `WhisperCppTranscriber` constructor for source-language transcripts.
+
 ---
 
 ## Project Structure

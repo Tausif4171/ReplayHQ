@@ -125,7 +125,7 @@ export function Header({ onMenuToggle }: HeaderProps) {
             </button>
           </DropdownMenuTrigger>
 
-          <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuContent align="end" className="w-56 bg-black">
             {/* User info */}
             <DropdownMenuLabel className="font-normal">
               <div className="flex items-center gap-3">

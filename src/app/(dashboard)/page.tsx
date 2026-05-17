@@ -244,6 +244,7 @@ export default function DashboardPage() {
     fetch("/api/dashboard")
       .then((res) => res.json())
       .then((data) => {
+        if (data.error) throw new Error(data.error);
         setDashboardStats(data);
       })
       .catch(() => {
@@ -340,7 +341,7 @@ export default function DashboardPage() {
                       <div className="min-w-0">
                         <p className="text-2xl font-bold tabular-nums text-foreground">
                           {dashboardStats
-                            ? dashboardStats[stat.key].toString()
+                            ? (dashboardStats[stat.key] ?? 0).toString()
                             : "0"}
                         </p>
                         <p className="truncate text-xs text-muted-foreground">

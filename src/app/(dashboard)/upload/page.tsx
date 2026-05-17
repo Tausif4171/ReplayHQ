@@ -1075,7 +1075,7 @@ export default function UploadPage() {
 
               {/* Step 1 navigation for file upload */}
               {isUploaded && (
-                <div className="flex justify-end animate-in fade-in slide-in-from-bottom-2 duration-300">
+                <div className="flex justify-end animate-in fade-in slide-in-from-bottom-2 duration-300 mt-7">
                   <Button onClick={() => { setImportSource("upload"); goNext(); }} size="lg">
                     Continue to Details
                     <ArrowRight className="ml-1 h-4 w-4" />

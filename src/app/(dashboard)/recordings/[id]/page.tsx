@@ -376,6 +376,26 @@ export default function RecordingDetailPage({
   const tldr: string | null = recording?.tldr || null;
   const isSummaryProcessing = !loading && (keyTakeaways === null || tldr === null);
 
+  // Auto-poll every 5s while transcript or summary is still processing
+  useEffect(() => {
+    if (loading) return;
+    if (!isTranscriptProcessing && !isSummaryProcessing) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/recordings/${id}`);
+        if (!res.ok) return;
+        const data: ApiRecording = await res.json();
+        setRecording(data);
+        setComments(data.comments || []);
+      } catch {
+        // silently ignore poll errors
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [id, loading, isTranscriptProcessing, isSummaryProcessing]);
+
   const topics: string[] = useMemo(() => {
     if (recording?.tags && recording.tags.length > 0) {
       return recording.tags.map((t) => t.name);

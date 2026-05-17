@@ -347,21 +347,19 @@ export default function RecordingDetailPage({
     setIsPlaying(true);
   }, []);
 
-  // Real transcript from the API; falls back to mock data only when whisper
-  // hasn't run yet (e.g. seeded recordings, pending transcription).
-  const transcript: TranscriptEntry[] = useMemo(() => {
+  // Real transcript — null means not yet processed (show processing UI)
+  const transcript: TranscriptEntry[] | null = useMemo(() => {
     if (recording?.segments && recording.segments.length > 0) {
       return recording.segments.map((s) => ({ time: s.startTime, text: s.text }));
     }
-    return mockTranscript;
+    return null;
   }, [recording?.segments]);
 
-  // Real AI summary from the summarize worker; falls back to mock data when
-  // summarization hasn't run yet so seeded recordings still render.
-  //
-  // Postgres jsonb sometimes round-trips as a JSON string (depending on driver
-  // path), so we accept both an already-parsed array and a stringified one.
-  const keyTakeaways: string[] = useMemo(() => {
+  const isTranscriptProcessing = !loading && transcript === null;
+
+  // Real AI summary — null means not yet processed (show processing UI)
+  // Postgres jsonb sometimes round-trips as a JSON string depending on driver path.
+  const keyTakeaways: string[] | null = useMemo(() => {
     const real = recording?.keyTakeaways as unknown;
     if (Array.isArray(real) && real.length > 0) return real as string[];
     if (typeof real === "string") {
@@ -369,13 +367,14 @@ export default function RecordingDetailPage({
         const parsed = JSON.parse(real);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed as string[];
       } catch {
-        // fall through to mock
+        // fall through
       }
     }
-    return aiKeyTakeaways;
+    return null;
   }, [recording?.keyTakeaways]);
 
-  const tldr: string = recording?.tldr || aiTldr;
+  const tldr: string | null = recording?.tldr || null;
+  const isSummaryProcessing = !loading && (keyTakeaways === null || tldr === null);
 
   const topics: string[] = useMemo(() => {
     if (recording?.tags && recording.tags.length > 0) {
@@ -386,6 +385,7 @@ export default function RecordingDetailPage({
 
   // Filtered transcript
   const filteredTranscript = useMemo(() => {
+    if (!transcript) return null;
     if (!transcriptSearch.trim()) return transcript;
     const q = transcriptSearch.toLowerCase();
     return transcript.filter((entry) =>
@@ -395,6 +395,7 @@ export default function RecordingDetailPage({
 
   // Currently "playing" transcript entry
   const activeTranscriptIndex = useMemo(() => {
+    if (!transcript) return 0;
     let idx = 0;
     for (let i = 0; i < transcript.length; i++) {
       if (transcript[i].time <= currentTime) {
@@ -802,114 +803,163 @@ export default function RecordingDetailPage({
 
               {/* ── Transcript Tab ──────────────────────────────── */}
               <TabsContent value="transcript" className="mt-4">
-                {/* Search */}
-                <div className="relative mb-4">
-                  <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    placeholder="Search transcript..."
-                    value={transcriptSearch}
-                    onChange={(e) => setTranscriptSearch(e.target.value)}
-                    className="h-8 pl-9 text-xs"
-                  />
-                </div>
+                {isTranscriptProcessing ? (
+                  /* Processing state */
+                  <div className="flex flex-col items-center justify-center gap-4 rounded-xl border border-dashed border-border/60 bg-muted/30 py-14 text-center">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
+                      <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-foreground">Transcribing recording…</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        This usually takes a few minutes. The transcript will appear here automatically.
+                      </p>
+                    </div>
+                    <div className="flex gap-1">
+                      {[0, 1, 2].map((i) => (
+                        <span
+                          key={i}
+                          className="h-1.5 w-1.5 rounded-full bg-primary/40 animate-pulse"
+                          style={{ animationDelay: `${i * 0.2}s` }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {/* Search */}
+                    <div className="relative mb-4">
+                      <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        placeholder="Search transcript..."
+                        value={transcriptSearch}
+                        onChange={(e) => setTranscriptSearch(e.target.value)}
+                        className="h-8 pl-9 text-xs"
+                      />
+                    </div>
 
-                {/* Entries */}
-                <div className="max-h-[420px] space-y-1 overflow-y-auto pr-1">
-                  {filteredTranscript.length === 0 && (
-                    <p className="py-8 text-center text-sm text-muted-foreground">
-                      No matching transcript entries found.
-                    </p>
-                  )}
-                  {filteredTranscript.map((entry, i) => {
-                    const originalIdx = transcript.indexOf(entry);
-                    const isActive = originalIdx === activeTranscriptIndex;
-                    return (
-                      <div
-                        key={i}
-                        className={cn(
-                          "group/entry flex gap-3 rounded-lg px-3 py-2.5 transition-colors",
-                          isActive
-                            ? "bg-accent/60 border-l-2 border-primary"
-                            : "hover:bg-secondary/50"
-                        )}
-                      >
-                        <button
-                          onClick={() => jumpTo(entry.time)}
-                          className="mt-0.5 shrink-0 text-xs font-medium tabular-nums text-primary hover:underline"
-                        >
-                          {formatTimestamp(entry.time)}
-                        </button>
-                        <p
-                          className={cn(
-                            "text-sm leading-relaxed",
-                            isActive
-                              ? "text-foreground"
-                              : "text-muted-foreground"
-                          )}
-                        >
-                          {entry.text}
+                    {/* Entries */}
+                    <div className="max-h-[420px] space-y-1 overflow-y-auto pr-1">
+                      {filteredTranscript!.length === 0 && (
+                        <p className="py-8 text-center text-sm text-muted-foreground">
+                          No matching transcript entries found.
                         </p>
-                      </div>
-                    );
-                  })}
-                </div>
+                      )}
+                      {filteredTranscript!.map((entry, i) => {
+                        const originalIdx = transcript!.indexOf(entry);
+                        const isActive = originalIdx === activeTranscriptIndex;
+                        return (
+                          <div
+                            key={i}
+                            className={cn(
+                              "group/entry flex gap-3 rounded-lg px-3 py-2.5 transition-colors",
+                              isActive
+                                ? "bg-accent/60 border-l-2 border-primary"
+                                : "hover:bg-secondary/50"
+                            )}
+                          >
+                            <button
+                              onClick={() => jumpTo(entry.time)}
+                              className="mt-0.5 shrink-0 text-xs font-medium tabular-nums text-primary hover:underline"
+                            >
+                              {formatTimestamp(entry.time)}
+                            </button>
+                            <p
+                              className={cn(
+                                "text-sm leading-relaxed",
+                                isActive
+                                  ? "text-foreground"
+                                  : "text-muted-foreground"
+                              )}
+                            >
+                              {entry.text}
+                            </p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
               </TabsContent>
 
               {/* ── AI Summary Tab ──────────────────────────────── */}
               <TabsContent value="summary" className="mt-4 space-y-6">
-                {/* AI badge */}
-                <Badge
-                  variant="outline"
-                  className="border-primary/30 text-primary"
-                >
-                  <Sparkles className="mr-1 h-3 w-3" />
-                  Generated by AI
-                </Badge>
+                {isSummaryProcessing ? (
+                  /* Processing state */
+                  <div className="flex flex-col items-center justify-center gap-4 rounded-xl border border-dashed border-border/60 bg-muted/30 py-14 text-center">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
+                      <Sparkles className="h-5 w-5 text-primary animate-pulse" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-foreground">Generating AI summary…</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        AI is analyzing the recording. Summary will be ready shortly.
+                      </p>
+                    </div>
+                    <div className="flex gap-1">
+                      {[0, 1, 2].map((i) => (
+                        <span
+                          key={i}
+                          className="h-1.5 w-1.5 rounded-full bg-primary/40 animate-pulse"
+                          style={{ animationDelay: `${i * 0.2}s` }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {/* AI badge */}
+                    <Badge variant="outline" className="border-primary/30 text-primary">
+                      <Sparkles className="mr-1 h-3 w-3" />
+                      Generated by AI
+                    </Badge>
 
-                {/* Key Takeaways */}
-                <div>
-                  <h3 className="mb-3 text-sm font-semibold text-foreground">
-                    Key Takeaways
-                  </h3>
-                  <div className="space-y-2.5">
-                    {keyTakeaways.map((item, i) => (
-                      <div key={i} className="flex gap-2.5">
-                        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
-                        <p className="text-sm leading-relaxed text-muted-foreground">
-                          {item}
-                        </p>
+                    {/* Key Takeaways */}
+                    <div>
+                      <h3 className="mb-3 text-sm font-semibold text-foreground">
+                        Key Takeaways
+                      </h3>
+                      <div className="space-y-2.5">
+                        {keyTakeaways!.map((item, i) => (
+                          <div key={i} className="flex gap-2.5">
+                            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
+                            <p className="text-sm leading-relaxed text-muted-foreground">
+                              {item}
+                            </p>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                </div>
+                    </div>
 
-                <Separator />
+                    <Separator />
 
-                {/* TL;DR */}
-                <div>
-                  <h3 className="mb-3 text-sm font-semibold text-foreground">
-                    TL;DR
-                  </h3>
-                  <p className="text-sm leading-relaxed text-muted-foreground">
-                    {tldr}
-                  </p>
-                </div>
+                    {/* TL;DR */}
+                    <div>
+                      <h3 className="mb-3 text-sm font-semibold text-foreground">
+                        TL;DR
+                      </h3>
+                      <p className="text-sm leading-relaxed text-muted-foreground">
+                        {tldr}
+                      </p>
+                    </div>
 
-                <Separator />
+                    <Separator />
 
-                {/* Topics Covered */}
-                <div>
-                  <h3 className="mb-3 text-sm font-semibold text-foreground">
-                    Topics Covered
-                  </h3>
-                  <div className="flex flex-wrap gap-2">
-                    {topics.map((topic) => (
-                      <Badge key={topic} variant="secondary">
-                        {topic}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
+                    {/* Topics Covered */}
+                    <div>
+                      <h3 className="mb-3 text-sm font-semibold text-foreground">
+                        Topics Covered
+                      </h3>
+                      <div className="flex flex-wrap gap-2">
+                        {topics.map((topic) => (
+                          <Badge key={topic} variant="secondary">
+                            {topic}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
               </TabsContent>
 
               {/* ── Comments Tab ────────────────────────────────── */}

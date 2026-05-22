@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { getInitials } from "@/lib/utils";
@@ -73,7 +73,7 @@ const themes: { id: Theme; label: string; icon: React.ReactNode }[] = [
   { id: "system", label: "System", icon: <Monitor className="h-5 w-5" /> },
 ];
 
-export default function SettingsPage() {
+function SettingsContent() {
   const searchParams = useSearchParams();
   const [name, setName] = useState("Tausif Khan");
   const [notifications, setNotifications] = useState(initialNotifications);
@@ -448,4 +448,12 @@ export default function SettingsPage() {
       </div>
     </div>
   );
+}
+// Add this new default export at the bottom:
+export default function SettingsPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-muted-foreground">Loading...</div>}>
+      <SettingsContent />
+    </Suspense>
+  )
 }

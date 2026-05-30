@@ -40,3 +40,4 @@ prisma/migrations/
 
 # uploads
 /uploads
+.env.production.local

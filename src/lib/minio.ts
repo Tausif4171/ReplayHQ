@@ -7,7 +7,8 @@ export const minioClient = new Minio.Client({
   accessKey: process.env.MINIO_ACCESS_KEY || "minioadmin",
   secretKey: process.env.MINIO_SECRET_KEY || "minioadmin",
   pathStyle: true,
-  region: process.env.MINIO_REGION || "us-east-1",
+  // region: process.env.MINIO_REGION || "us-east-1",
+  region: "ap-south-1", // ← hardcoded, not from env
 });
 
 export const BUCKET_NAME = process.env.MINIO_BUCKET || "replayhq-recordings";

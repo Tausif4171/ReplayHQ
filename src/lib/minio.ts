@@ -6,6 +6,7 @@ export const minioClient = new Minio.Client({
   useSSL: process.env.MINIO_USE_SSL === "true",
   accessKey: process.env.MINIO_ACCESS_KEY || "minioadmin",
   secretKey: process.env.MINIO_SECRET_KEY || "minioadmin",
+  pathStyle: true,
 });
 
 export const BUCKET_NAME = process.env.MINIO_BUCKET || "replayhq-recordings";

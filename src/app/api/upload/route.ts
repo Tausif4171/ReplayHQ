@@ -18,7 +18,13 @@ export async function POST(request: NextRequest) {
   const ext = filename.split(".").pop() || "mp4";
   const objectKey = `recordings/${session.user.id}/${crypto.randomUUID()}.${ext}`;
 
-  await ensureBucket();
+  // Try to ensure bucket exists, but don't crash if it fails (e.g. Supabase)
+  try {
+    await ensureBucket();
+  } catch {
+    // Bucket likely already exists or operation not supported
+  }
+
   const presignedUrl = await getPresignedUploadUrl(objectKey);
 
   return NextResponse.json({

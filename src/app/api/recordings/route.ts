@@ -32,8 +32,8 @@ export async function GET(request: NextRequest) {
   const orderBy: any = sort === "oldest"
     ? { createdAt: "asc" }
     : sort === "popular"
-    ? { watchHistory: { _count: "desc" } }
-    : { createdAt: "desc" };
+      ? { watchHistory: { _count: "desc" } }
+      : { createdAt: "desc" };
 
   const [recordings, total] = await Promise.all([
     prisma.recording.findMany({
@@ -92,11 +92,11 @@ export async function POST(request: NextRequest) {
         seriesId: seriesId || undefined,
         tags: tags?.length
           ? {
-              connectOrCreate: tags.map((tag: string) => ({
-                where: { name: tag },
-                create: { name: tag },
-              })),
-            }
+            connectOrCreate: tags.map((tag: string) => ({
+              where: { name: tag },
+              create: { name: tag },
+            })),
+          }
           : undefined,
       },
       include: {
@@ -106,11 +106,16 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    await transcribeQueue.add(
-      "transcribe",
-      { recordingId: recording.id },
-      { jobId: `transcribe-${recording.id}` }
-    );
+    try {
+      await transcribeQueue.add(
+        "transcribe",
+        { recordingId: recording.id },
+        { jobId: `transcribe-${recording.id}` }
+      );
+    } catch (error) {
+      console.error("Failed to queue transcription (will need manual trigger):", error);
+      // Don't fail the request — recording is saved, transcription can be triggered manually
+    }
 
     return NextResponse.json(recording, { status: 201 });
   } catch (error) {

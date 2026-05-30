@@ -3,7 +3,8 @@ import IORedis from "ioredis";
 
 // Singleton Redis connection for queues
 const connection = new IORedis(process.env.REDIS_URL || "redis://localhost:6379", {
-  maxRetriesPerRequest: null, // Required by BullMQ
+  maxRetriesPerRequest: null,
+  lazyConnect: true, // Don't connect until needed
 });
 
 export const zoomImportQueue = new Queue("zoom-import", {
@@ -36,7 +37,7 @@ export const transcribeQueue = new Queue<TranscribeJobData>("transcribe", {
     backoff: {
       type: "exponential",
       delay: 30_000, // 30s → 2m → 8m. Transcription is minutes-long; aggressive
-                     // retry just stacks load — we'd rather wait.
+      // retry just stacks load — we'd rather wait.
     },
     removeOnComplete: { age: 24 * 3600, count: 1000 },
     removeOnFail: { age: 7 * 24 * 3600 }, // keep failures a week for debugging
@@ -60,7 +61,7 @@ export const summarizeQueue = new Queue<SummarizeJobData>("summarize", {
     backoff: {
       type: "exponential",
       delay: 10_000, // 10s → 40s → 160s. LLM calls finish in seconds, so we
-                     // can retry sooner than transcription.
+      // can retry sooner than transcription.
     },
     removeOnComplete: { age: 24 * 3600, count: 1000 },
     removeOnFail: { age: 7 * 24 * 3600 },

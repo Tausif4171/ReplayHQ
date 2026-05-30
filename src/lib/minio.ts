@@ -7,7 +7,7 @@ export const s3Client = new S3Client({
   region: process.env.MINIO_REGION || "us-east-1",
   endpoint: isLocal
     ? `http://${process.env.MINIO_ENDPOINT || "localhost"}:${process.env.MINIO_PORT || 9000}`
-    : `https://${process.env.MINIO_ENDPOINT}`,
+    : `https://${process.env.MINIO_ENDPOINT}/storage/v1/s3`,
   credentials: {
     accessKeyId: process.env.MINIO_ACCESS_KEY || "minioadmin",
     secretAccessKey: process.env.MINIO_SECRET_KEY || "minioadmin",

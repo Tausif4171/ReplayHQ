@@ -15,7 +15,7 @@
 
 import "dotenv/config";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
-import { Worker, Job } from "bullmq";
+import { Worker, Job, Queue } from "bullmq";
 import IORedis from "ioredis";
 import { PrismaClient, RecordingStatus } from "@prisma/client";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -48,7 +48,61 @@ const connection = new IORedis(
   { maxRetriesPerRequest: null }
 );
 
+const transcribeQueue = new Queue<TranscribeJobData>("transcribe", {
+  connection,
+});
+
 const transcriber: Transcriber = new WhisperCppTranscriber(WHISPER_MODEL_PATH);
+
+const RECOVERY_INTERVAL_MS = Number(
+  process.env.TRANSCRIBE_RECOVERY_INTERVAL_MS || 30_000
+);
+const RECOVERY_BATCH_SIZE = Number(
+  process.env.TRANSCRIBE_RECOVERY_BATCH_SIZE || 20
+);
+
+async function enqueueMissingTranscriptions() {
+  const recordings = await prisma.recording.findMany({
+    where: {
+      status: RecordingStatus.READY,
+      transcribedAt: null,
+      transcript: null,
+      transcriptError: null,
+    },
+    select: { id: true },
+    orderBy: { createdAt: "asc" },
+    take: RECOVERY_BATCH_SIZE,
+  });
+
+  let enqueued = 0;
+  for (const recording of recordings) {
+    const jobId = `transcribe-${recording.id}`;
+    const existingJob = await transcribeQueue.getJob(jobId);
+    if (existingJob) continue;
+
+    await transcribeQueue.add(
+      "transcribe",
+      { recordingId: recording.id },
+      { jobId }
+    );
+    enqueued++;
+  }
+
+  if (enqueued > 0) {
+    log.info({ enqueued }, "recovered missing transcription jobs");
+  }
+}
+
+async function recoverMissingTranscriptions() {
+  try {
+    await enqueueMissingTranscriptions();
+  } catch (error) {
+    log.error(
+      { err: error instanceof Error ? error.message : String(error) },
+      "failed to recover missing transcription jobs"
+    );
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Worker
@@ -201,5 +255,8 @@ worker.on("completed", (job) => {
 worker.on("failed", (job, err) => {
   log.error({ jobId: job?.id, err: err.message }, "job failed");
 });
+
+void recoverMissingTranscriptions();
+setInterval(recoverMissingTranscriptions, RECOVERY_INTERVAL_MS);
 
 log.info({ model: WHISPER_MODEL_PATH }, "transcribe worker started");

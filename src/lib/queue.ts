@@ -1,6 +1,8 @@
 import { Queue } from "bullmq";
 import IORedis from "ioredis";
 
+const QUEUE_ADD_TIMEOUT_MS = Number(process.env.QUEUE_ADD_TIMEOUT_MS || 2500);
+
 // Singleton Redis connection for queues
 const connection = new IORedis(process.env.REDIS_URL || "redis://localhost:6379", {
   maxRetriesPerRequest: null,
@@ -67,3 +69,51 @@ export const summarizeQueue = new Queue<SummarizeJobData>("summarize", {
     removeOnFail: { age: 7 * 24 * 3600 },
   },
 });
+
+export interface EnqueueResult {
+  enqueued: boolean;
+  jobId?: string;
+  reason?: string;
+}
+
+async function enqueueWithTimeout(
+  addJob: Promise<{ id?: string }>,
+): Promise<EnqueueResult> {
+  try {
+    let timedOut = false;
+    const safeAddJob = addJob.catch((error) => {
+      if (timedOut) return null;
+      throw error;
+    });
+
+    const job = await Promise.race([
+      safeAddJob,
+      new Promise<null>((resolve) =>
+        setTimeout(() => {
+          timedOut = true;
+          resolve(null);
+        }, QUEUE_ADD_TIMEOUT_MS)
+      ),
+    ]);
+
+    if (!job) {
+      return { enqueued: false, reason: "queue_enqueue_timeout" };
+    }
+
+    return { enqueued: true, jobId: job.id };
+  } catch (error) {
+    const reason =
+      error instanceof Error ? error.message : "queue_enqueue_failed";
+    return { enqueued: false, reason };
+  }
+}
+
+export function enqueueTranscription(recordingId: string, jobId?: string) {
+  return enqueueWithTimeout(
+    transcribeQueue.add(
+      "transcribe",
+      { recordingId },
+      { jobId: jobId || `transcribe-${recordingId}` }
+    )
+  );
+}

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { auth } from "@/lib/auth";
-import { transcribeQueue } from "@/lib/queue";
+import { enqueueTranscription } from "@/lib/queue";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -106,15 +106,12 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    try {
-      await transcribeQueue.add(
-        "transcribe",
-        { recordingId: recording.id },
-        { jobId: `transcribe-${recording.id}` }
+    const enqueueResult = await enqueueTranscription(recording.id);
+    if (!enqueueResult.enqueued) {
+      console.warn(
+        "Recording created but transcription was not queued:",
+        enqueueResult.reason
       );
-    } catch (error) {
-      console.error("Failed to queue transcription (will need manual trigger):", error);
-      // Don't fail the request — recording is saved, transcription can be triggered manually
     }
 
     return NextResponse.json(recording, { status: 201 });

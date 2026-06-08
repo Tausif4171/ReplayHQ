@@ -1,12 +1,34 @@
 import { NextRequest, NextResponse } from "next/server";
+import { DeleteObjectCommand } from "@aws-sdk/client-s3";
 import prisma from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { BUCKET_NAME, s3Client } from "@/lib/minio";
+
+function isStorageObjectKey(value: string | null | undefined) {
+  return Boolean(
+    value && value !== "pending-upload" && !value.startsWith("http")
+  );
+}
+
+async function deleteStorageObject(key: string) {
+  await s3Client.send(
+    new DeleteObjectCommand({ Bucket: BUCKET_NAME, Key: key })
+  );
+}
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+
+  const session = await auth();
+  const currentUser = session?.user?.id
+    ? await prisma.user.findUnique({
+        where: { id: session.user.id },
+        select: { role: true },
+      })
+    : null;
 
   const recording = await prisma.recording.findUnique({
     where: { id },
@@ -32,7 +54,12 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  return NextResponse.json(recording);
+  return NextResponse.json({
+    ...recording,
+    permissions: {
+      canDelete: currentUser?.role === "ADMIN",
+    },
+  });
 }
 
 export async function PATCH(
@@ -71,20 +98,43 @@ export async function DELETE(
 
   const { id } = await params;
 
+  const currentUser = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { role: true },
+  });
+
+  if (currentUser?.role !== "ADMIN") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const recording = await prisma.recording.findUnique({
     where: { id },
-    select: { uploadedById: true },
+    select: { videoUrl: true, thumbnailUrl: true },
   });
 
   if (!recording) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  if (recording.uploadedById !== session.user.id) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
   await prisma.recording.delete({ where: { id } });
+
+  const objectKeys = [recording.videoUrl, recording.thumbnailUrl].filter(
+    isStorageObjectKey
+  ) as string[];
+
+  const cleanupResults = await Promise.allSettled(
+    objectKeys.map((key) => deleteStorageObject(key))
+  );
+
+  cleanupResults.forEach((result, index) => {
+    if (result.status === "rejected") {
+      console.error("Failed to delete recording object:", {
+        key: objectKeys[index],
+        error:
+          result.reason instanceof Error ? result.reason.message : result.reason,
+      });
+    }
+  });
 
   return NextResponse.json({ success: true });
 }

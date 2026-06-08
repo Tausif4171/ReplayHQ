@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useCallback, useEffect, useRef, use } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import {
@@ -17,6 +18,20 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Play,
   Pause,
@@ -37,6 +52,9 @@ import {
   Clock,
   SkipForward,
   Loader2,
+  MoreHorizontal,
+  Trash2,
+  AlertTriangle,
 } from "lucide-react";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -85,6 +103,9 @@ interface ApiRecording {
   _count?: {
     watchHistory?: number;
     bookmarks?: number;
+  };
+  permissions?: {
+    canDelete: boolean;
   };
 }
 
@@ -157,6 +178,7 @@ export default function RecordingDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
+  const router = useRouter();
   const { data: session } = useSession();
 
   // API data state
@@ -178,6 +200,9 @@ export default function RecordingDetailPage({
   const [showDescription, setShowDescription] = useState(false);
   const [isBookmarked, setIsBookmarked] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Transcript search
   const [transcriptSearch, setTranscriptSearch] = useState("");
@@ -310,6 +335,29 @@ export default function RecordingDetailPage({
       setSubmittingComment(false);
     }
   }, [commentText, submittingComment, id]);
+
+  const handleDeleteRecording = useCallback(async () => {
+    if (isDeleting) return;
+
+    setIsDeleting(true);
+    setDeleteError(null);
+
+    try {
+      const res = await fetch(`/api/recordings/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error || "Failed to delete recording");
+      }
+
+      router.replace("/recordings");
+      router.refresh();
+    } catch (err) {
+      setDeleteError(
+        err instanceof Error ? err.message : "Failed to delete recording"
+      );
+      setIsDeleting(false);
+    }
+  }, [id, isDeleting, router]);
 
   const videoDuration = duration || recording?.duration || 0;
   const progressPercent = videoDuration > 0 ? (currentTime / videoDuration) * 100 : 0;
@@ -775,6 +823,82 @@ export default function RecordingDetailPage({
                   )}
                   {copied ? "Copied!" : "Copy link"}
                 </Button>
+                {recording.permissions?.canDelete && (
+                  <Dialog
+                    open={deleteDialogOpen}
+                    onOpenChange={(open) => {
+                      if (isDeleting) return;
+                      setDeleteDialogOpen(open);
+                      if (!open) setDeleteError(null);
+                    }}
+                  >
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          aria-label="More actions"
+                        >
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-48">
+                        <DropdownMenuItem
+                          className="cursor-pointer gap-2 text-destructive focus:text-destructive"
+                          onSelect={(event) => {
+                            event.preventDefault();
+                            setDeleteDialogOpen(true);
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          Delete recording
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+
+                    <DialogContent className="sm:max-w-md">
+                      <DialogHeader>
+                        <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+                          <AlertTriangle className="h-5 w-5" />
+                        </div>
+                        <DialogTitle>Delete recording?</DialogTitle>
+                        <DialogDescription>
+                          This permanently removes the recording, transcript,
+                          summary, comments, history, and uploaded media files.
+                        </DialogDescription>
+                      </DialogHeader>
+
+                      {deleteError && (
+                        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                          {deleteError}
+                        </div>
+                      )}
+
+                      <DialogFooter>
+                        <Button
+                          variant="outline"
+                          onClick={() => setDeleteDialogOpen(false)}
+                          disabled={isDeleting}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          onClick={handleDeleteRecording}
+                          disabled={isDeleting}
+                        >
+                          {isDeleting ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-4 w-4" />
+                          )}
+                          Delete
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+                )}
               </div>
             </div>
 

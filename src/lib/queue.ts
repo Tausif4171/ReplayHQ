@@ -78,6 +78,7 @@ export interface EnqueueResult {
 
 async function enqueueWithTimeout(
   addJob: Promise<{ id?: string }>,
+  timeoutMs = QUEUE_ADD_TIMEOUT_MS
 ): Promise<EnqueueResult> {
   try {
     let timedOut = false;
@@ -92,7 +93,7 @@ async function enqueueWithTimeout(
         setTimeout(() => {
           timedOut = true;
           resolve(null);
-        }, QUEUE_ADD_TIMEOUT_MS)
+        }, timeoutMs)
       ),
     ]);
 
@@ -108,12 +109,17 @@ async function enqueueWithTimeout(
   }
 }
 
-export function enqueueTranscription(recordingId: string, jobId?: string) {
+export function enqueueTranscription(
+  recordingId: string,
+  jobId?: string,
+  timeoutMs?: number
+) {
   return enqueueWithTimeout(
     transcribeQueue.add(
       "transcribe",
       { recordingId },
       { jobId: jobId || `transcribe-${recordingId}` }
-    )
+    ),
+    timeoutMs
   );
 }

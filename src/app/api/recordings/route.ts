@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { enqueueTranscription } from "@/lib/queue";
@@ -106,13 +106,19 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    const enqueueResult = await enqueueTranscription(recording.id);
-    if (!enqueueResult.enqueued) {
-      console.warn(
-        "Recording created but transcription was not queued:",
-        enqueueResult.reason
+    after(async () => {
+      const enqueueResult = await enqueueTranscription(
+        recording.id,
+        undefined,
+        15_000
       );
-    }
+      if (!enqueueResult.enqueued) {
+        console.warn(
+          "Recording created but transcription was not queued:",
+          enqueueResult.reason
+        );
+      }
+    });
 
     return NextResponse.json(recording, { status: 201 });
   } catch (error) {

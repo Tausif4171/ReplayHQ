@@ -14,15 +14,16 @@
  */
 
 import "dotenv/config";
+import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { Worker, Job } from "bullmq";
 import IORedis from "ioredis";
 import { PrismaClient, RecordingStatus } from "@prisma/client";
-import * as Minio from "minio";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import pino from "pino";
 import { extractAudio, probeDuration } from "../lib/ffmpeg";
+import { BUCKET_NAME, s3Client } from "../lib/minio";
 import { WhisperCppTranscriber, type Transcriber } from "../lib/transcriber";
 import { summarizeQueue, type TranscribeJobData } from "../lib/queue";
 
@@ -33,8 +34,6 @@ import { summarizeQueue, type TranscribeJobData } from "../lib/queue";
 const WHISPER_MODEL_PATH =
   process.env.WHISPER_MODEL_PATH ||
   path.join(process.env.HOME || "", "whisper-models/ggml-base.en.bin");
-
-const BUCKET_NAME = process.env.MINIO_BUCKET || "replayhq-recordings";
 
 // ---------------------------------------------------------------------------
 // Clients (standalone — separate process from Next.js)
@@ -48,14 +47,6 @@ const connection = new IORedis(
   process.env.REDIS_URL || "redis://localhost:6379",
   { maxRetriesPerRequest: null }
 );
-
-const minioClient = new Minio.Client({
-  endPoint: process.env.MINIO_ENDPOINT || "localhost",
-  port: parseInt(process.env.MINIO_PORT || "9000"),
-  useSSL: process.env.MINIO_USE_SSL === "true",
-  accessKey: process.env.MINIO_ACCESS_KEY || "minioadmin",
-  secretKey: process.env.MINIO_SECRET_KEY || "minioadmin",
-});
 
 const transcriber: Transcriber = new WhisperCppTranscriber(WHISPER_MODEL_PATH);
 
@@ -106,11 +97,20 @@ const worker = new Worker<TranscribeJobData>(
       // 1. Pull the video from MinIO to a temp file. We don't stream into
       //    ffmpeg's stdin because ffmpeg seeks the input for some codecs.
       jobLog.info({ step: "download" }, "downloading from MinIO");
-      const stream = await minioClient.getObject(BUCKET_NAME, recording.videoUrl);
+      const response = await s3Client.send(
+        new GetObjectCommand({ Bucket: BUCKET_NAME, Key: recording.videoUrl })
+      );
+      if (!response.Body) {
+        throw new Error(`Recording ${recordingId} object has no response body`);
+      }
+
       const chunks: Buffer[] = [];
-      for await (const c of stream) chunks.push(c as Buffer);
-      await writeFile(videoPath, Buffer.concat(chunks));
-      jobLog.info({ step: "download", bytes: Buffer.concat(chunks).length }, "downloaded");
+      for await (const chunk of response.Body as AsyncIterable<Uint8Array>) {
+        chunks.push(Buffer.from(chunk));
+      }
+      const videoBuffer = Buffer.concat(chunks);
+      await writeFile(videoPath, videoBuffer);
+      jobLog.info({ step: "download", bytes: videoBuffer.length }, "downloaded");
 
       // 2. Extract mono 16 kHz WAV (whisper's native format).
       jobLog.info({ step: "extract_audio" }, "extracting audio");

@@ -15,15 +15,17 @@ export function middleware(request: NextRequest) {
     request.cookies.get("__Secure-authjs.session-token")?.value;
 
   const isLoggedIn = !!sessionToken;
-  const isAuthPage = pathname.startsWith("/login");
+  const isLoginPage = pathname.startsWith("/login");
+  const isPublicAuthPage =
+    isLoginPage || pathname.startsWith("/reset-password");
 
   // Redirect logged-in users away from login page
-  if (isAuthPage && isLoggedIn) {
+  if (isLoginPage && isLoggedIn) {
     return NextResponse.redirect(new URL("/", request.url));
   }
 
   // Redirect unauthenticated users to login
-  if (!isAuthPage && !isLoggedIn) {
+  if (!isPublicAuthPage && !isLoggedIn) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 

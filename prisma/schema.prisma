@@ -23,23 +23,60 @@ enum RecordingStatus {
   FAILED
 }
 
+enum AccessRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 model User {
-  id            String         @id @default(cuid())
-  name          String?
-  email         String         @unique
-  emailVerified DateTime?
-  image         String?
-  role          Role           @default(VIEWER)
-  accounts      Account[]
-  sessions      Session[]
-  recordings    Recording[]    @relation("presenter")
-  uploads       Recording[]    @relation("uploader")
-  watchHistory  WatchHistory[]
-  comments      Comment[]
-  bookmarks     Bookmark[]
-  playlists     Playlist[]
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  id                  String               @id @default(cuid())
+  name                String?
+  email               String               @unique
+  emailVerified       DateTime?
+  image               String?
+  passwordHash        String?              @map("password")
+  passwordSetAt       DateTime?
+  role                Role                 @default(VIEWER)
+  accounts            Account[]
+  sessions            Session[]
+  passwordResetTokens PasswordResetToken[]
+  recordings          Recording[]          @relation("presenter")
+  uploads             Recording[]          @relation("uploader")
+  watchHistory        WatchHistory[]
+  comments            Comment[]
+  bookmarks           Bookmark[]
+  playlists           Playlist[]
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model AccessRequest {
+  id         String              @id @default(cuid())
+  email      String              @unique
+  name       String?
+  message    String?             @db.Text
+  status     AccessRequestStatus @default(PENDING)
+  reviewedAt DateTime?
+  reviewNote String?             @db.Text
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
 }
 
 model Account {
@@ -54,7 +91,7 @@ model Account {
   scope             String?
   id_token          String?
   session_state     String?
-  user              User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([provider, providerAccountId])
 }
@@ -87,39 +124,39 @@ model Series {
 }
 
 model Recording {
-  id            String          @id @default(cuid())
-  title         String
-  description   String?
-  duration      Int?            // duration in seconds
-  videoUrl      String          // MinIO object path
-  thumbnailUrl  String?         // MinIO object path
-  status        RecordingStatus @default(UPLOADING)
-  transcript    String?         @db.Text
-  summary       String?         @db.Text
-  keyTakeaways  Json?           @db.JsonB
-  tldr          String?         @db.Text
-  presenterId   String?
-  presenter     User?           @relation("presenter", fields: [presenterId], references: [id])
-  uploadedById  String
-  uploadedBy    User            @relation("uploader", fields: [uploadedById], references: [id])
-  seriesId      String?
-  series        Series?         @relation(fields: [seriesId], references: [id])
-  tags          Tag[]
-  comments      Comment[]
-  watchHistory  WatchHistory[]
-  bookmarks     Bookmark[]
-  playlistItems PlaylistItem[]
-  embeddings    Embedding[]
-  segments      TranscriptSegment[]
-  transcribedAt   DateTime?
-  transcriptError String?       @db.Text
-  summarizedAt        DateTime?
-  summarizationError  String?   @db.Text
-  summaryModel        String?   // e.g. "ollama:qwen2.5:7b" — for cost / A-B reporting
-  summaryPromptVersion Int?     // bump to invalidate stale summaries on prompt edits
-  recordedAt    DateTime?       // when the actual meeting happened
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
+  id                   String              @id @default(cuid())
+  title                String
+  description          String?
+  duration             Int? // duration in seconds
+  videoUrl             String // MinIO object path
+  thumbnailUrl         String? // MinIO object path
+  status               RecordingStatus     @default(UPLOADING)
+  transcript           String?             @db.Text
+  summary              String?             @db.Text
+  keyTakeaways         Json?               @db.JsonB
+  tldr                 String?             @db.Text
+  presenterId          String?
+  presenter            User?               @relation("presenter", fields: [presenterId], references: [id])
+  uploadedById         String
+  uploadedBy           User                @relation("uploader", fields: [uploadedById], references: [id])
+  seriesId             String?
+  series               Series?             @relation(fields: [seriesId], references: [id])
+  tags                 Tag[]
+  comments             Comment[]
+  watchHistory         WatchHistory[]
+  bookmarks            Bookmark[]
+  playlistItems        PlaylistItem[]
+  embeddings           Embedding[]
+  segments             TranscriptSegment[]
+  transcribedAt        DateTime?
+  transcriptError      String?             @db.Text
+  summarizedAt         DateTime?
+  summarizationError   String?             @db.Text
+  summaryModel         String? // e.g. "ollama:qwen2.5:7b" — for cost / A-B reporting
+  summaryPromptVersion Int? // bump to invalidate stale summaries on prompt edits
+  recordedAt           DateTime? // when the actual meeting happened
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
 
   @@index([seriesId])
   @@index([presenterId])
@@ -134,16 +171,16 @@ model Tag {
 }
 
 model WatchHistory {
-  id          String    @id @default(cuid())
-  userId      String
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  recordingId String
-  recording   Recording @relation(fields: [recordingId], references: [id], onDelete: Cascade)
-  progress    Int       @default(0) // seconds watched
-  completed   Boolean   @default(false)
-  lastWatchedAt DateTime @default(now())
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recordingId   String
+  recording     Recording @relation(fields: [recordingId], references: [id], onDelete: Cascade)
+  progress      Int       @default(0) // seconds watched
+  completed     Boolean   @default(false)
+  lastWatchedAt DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   @@unique([userId, recordingId])
   @@index([userId])
@@ -153,7 +190,7 @@ model WatchHistory {
 model Comment {
   id          String    @id @default(cuid())
   content     String
-  timestamp   Int?      // video timestamp in seconds (nullable for general comments)
+  timestamp   Int? // video timestamp in seconds (nullable for general comments)
   userId      String
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   recordingId String
@@ -171,7 +208,7 @@ model Bookmark {
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   recordingId String
   recording   Recording @relation(fields: [recordingId], references: [id], onDelete: Cascade)
-  timestamp   Int?      // optional: bookmark a specific moment
+  timestamp   Int? // optional: bookmark a specific moment
   note        String?
   createdAt   DateTime  @default(now())
 
@@ -225,7 +262,7 @@ model Embedding {
   recordingId String
   recording   Recording                    @relation(fields: [recordingId], references: [id], onDelete: Cascade)
   chunkText   String                       @db.Text
-  startTime   Int?                         // timestamp in seconds
+  startTime   Int? // timestamp in seconds
   endTime     Int?
   embedding   Unsupported("vector(1536)")? // OpenAI embedding dimension
   createdAt   DateTime                     @default(now())

@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
 import { cn } from "@/lib/utils";
@@ -56,6 +56,7 @@ export default function LoginPage() {
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [isPasswordLoading, setIsPasswordLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [oauthError, setOauthError] = useState<string | null>(null);
 
   const [forgotOpen, setForgotOpen] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
@@ -69,6 +70,32 @@ export default function LoginPage() {
   const [requestMessage, setRequestMessage] = useState("");
   const [requestState, setRequestState] = useState<SubmitState>("idle");
   const [requestError, setRequestError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const error = params.get("error");
+    const returnedEmail = params.get("email");
+
+    if (returnedEmail) {
+      setEmail(returnedEmail);
+      setRequestEmail(returnedEmail);
+      setForgotEmail(returnedEmail);
+    }
+
+    if (error === "access_required") {
+      setOauthError(
+        "This Google account is not approved for ReplayHQ yet. Request access first or ask an admin to approve it."
+      );
+    } else if (error === "google_email_missing") {
+      setOauthError(
+        "Google did not return an email address for this account. Try another account or request access."
+      );
+    } else if (error) {
+      setOauthError(
+        "Google sign-in could not be completed. Try again or contact an admin."
+      );
+    }
+  }, []);
 
   async function handlePasswordSignIn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -245,6 +272,7 @@ export default function LoginPage() {
             disabled={isGoogleLoading || isPasswordLoading}
             onClick={() => {
               setIsGoogleLoading(true);
+              setOauthError(null);
               signIn("google", { callbackUrl: "/" });
             }}
             className={cn(
@@ -280,6 +308,15 @@ export default function LoginPage() {
             )}
             {isGoogleLoading ? "Signing in..." : "Sign in with Google"}
           </Button>
+
+          {oauthError && (
+            <div className="mt-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              <div className="flex gap-2">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{oauthError}</span>
+              </div>
+            </div>
+          )}
 
           <div className="relative my-8">
             <Separator />

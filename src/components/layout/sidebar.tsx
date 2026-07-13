@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import {
   Play,
@@ -15,6 +16,7 @@ import {
   X,
   ChevronsLeft,
   ChevronsRight,
+  ShieldCheck,
 } from "lucide-react";
 
 const mainNavItems = [
@@ -33,7 +35,15 @@ interface SidebarProps {
 
 export function Sidebar({ open, onClose }: SidebarProps) {
   const pathname = usePathname();
+  const { data: session } = useSession();
   const [collapsed, setCollapsed] = useState(false);
+  const navItems =
+    session?.user?.role === "ADMIN"
+      ? [
+          ...mainNavItems,
+          { label: "Team access", href: "/settings/admin", icon: ShieldCheck },
+        ]
+      : mainNavItems;
 
   const isActive = (href: string) => {
     if (href === "/") return pathname === "/";
@@ -108,7 +118,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                 Navigation
               </p>
             )}
-            {mainNavItems.map((item) => {
+            {navItems.map((item) => {
               const Icon = item.icon;
               const active = isActive(item.href);
               return (

@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import prisma from "@/lib/prisma";
-import { sendEmail } from "@/lib/email";
-import { createSecureToken, hashToken } from "@/lib/tokens";
 import { isSameOriginRequest } from "@/lib/request";
+import {
+  createPasswordResetUrl,
+  sendPasswordInstructions,
+} from "@/lib/password-reset";
 
 const ForgotPasswordSchema = z.object({
   email: z.string().email().max(255),
@@ -11,10 +13,6 @@ const ForgotPasswordSchema = z.object({
 
 function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
-}
-
-function getAppOrigin(request: NextRequest) {
-  return process.env.NEXTAUTH_URL || request.nextUrl.origin;
 }
 
 export async function POST(request: NextRequest) {
@@ -42,33 +40,16 @@ export async function POST(request: NextRequest) {
   });
 
   if (user) {
-    const token = createSecureToken();
-    const resetUrl = `${getAppOrigin(request)}/reset-password?token=${token}`;
-
-    await prisma.$transaction([
-      prisma.passwordResetToken.updateMany({
-        where: {
-          userId: user.id,
-          usedAt: null,
-          expiresAt: { gt: new Date() },
-        },
-        data: { usedAt: new Date() },
-      }),
-      prisma.passwordResetToken.create({
-        data: {
-          userId: user.id,
-          tokenHash: hashToken(token),
-          expiresAt: new Date(Date.now() + 60 * 60 * 1000),
-        },
-      }),
-    ]);
+    const resetUrl = await createPasswordResetUrl({
+      userId: user.id,
+      origin: request.nextUrl.origin,
+    });
 
     try {
-      await sendEmail({
-        to: user.email,
-        subject: "Reset your ReplayHQ password",
-        text: `Use this link to reset your ReplayHQ password. It expires in 1 hour.\n\n${resetUrl}`,
-        html: `<p>Use this link to reset your ReplayHQ password. It expires in 1 hour.</p><p><a href="${resetUrl}">Reset password</a></p>`,
+      await sendPasswordInstructions({
+        email: user.email,
+        resetUrl,
+        mode: "reset",
       });
     } catch (error) {
       console.error("Failed to send password reset email:", error);

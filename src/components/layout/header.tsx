@@ -3,7 +3,15 @@
 import { usePathname, useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
-import { Menu, Search, Bell, LogOut, Settings, ChevronDown } from "lucide-react";
+import {
+  Menu,
+  Search,
+  Bell,
+  LogOut,
+  Settings,
+  ChevronDown,
+  ShieldCheck,
+} from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,6 +29,7 @@ const pageTitles: Record<string, string> = {
   "/playlists": "Playlists",
   "/analytics": "Analytics",
   "/settings": "Settings",
+  "/settings/admin": "Team access",
 };
 
 function getInitials(name: string): string {
@@ -163,6 +172,16 @@ export function Header({ onMenuToggle }: HeaderProps) {
               <Settings className="h-4 w-4" />
               Settings
             </DropdownMenuItem>
+
+            {session?.user?.role === "ADMIN" && (
+              <DropdownMenuItem
+                onClick={() => router.push("/settings/admin")}
+                className="cursor-pointer gap-2"
+              >
+                <ShieldCheck className="h-4 w-4" />
+                Team access
+              </DropdownMenuItem>
+            )}
 
             <DropdownMenuSeparator />
 

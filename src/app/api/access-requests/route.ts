@@ -40,7 +40,9 @@ export async function POST(request: NextRequest) {
       name,
       message,
       status: "PENDING",
+      requestedRole: "VIEWER",
       reviewedAt: null,
+      reviewedById: null,
       reviewNote: null,
     },
     create: {
@@ -63,7 +65,7 @@ export async function POST(request: NextRequest) {
           `Email: ${email}`,
           `Message: ${message || "Not provided"}`,
           "",
-          "Review this request in the AccessRequest table.",
+          "Review this request in ReplayHQ settings: /settings/admin",
         ].join("\n"),
       });
     } catch (error) {

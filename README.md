@@ -209,7 +209,7 @@ replayhq/
 ## Roadmap
 
 - [x] **v1** — UI/UX foundation with all pages and mock data
-- [ ] **v2** — Auth, MinIO upload, AI transcription pipeline
+- [x] **v2** — Auth, MinIO upload, AI transcription pipeline
 - [ ] **v3** — Vector search, Slack integration, team analytics
 
 ---

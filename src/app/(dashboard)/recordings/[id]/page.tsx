@@ -253,9 +253,10 @@ export default function RecordingDetailPage({
     return () => { cancelled = true; };
   }, [id]);
 
-  // Fetch video stream URL
+  // Fetch the video stream URL once per recording. Polling updates the
+  // transcript/summary data, but changing a signed media URL reloads playback.
   useEffect(() => {
-    if (!recording) return;
+    if (!recording?.id) return;
     let cancelled = false;
 
     async function fetchStreamUrl() {
@@ -272,7 +273,7 @@ export default function RecordingDetailPage({
 
     fetchStreamUrl();
     return () => { cancelled = true; };
-  }, [recording, id]);
+  }, [recording?.id, id]);
 
   // Sync video element with state
   useEffect(() => {

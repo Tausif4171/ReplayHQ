@@ -87,9 +87,16 @@ function mapApiRecording(api: ApiRecording): Recording {
 }
 
 function mapApiWatchHistory(api: ApiWatchHistoryItem): ContinueWatchingItem {
+  const progressSeconds = Math.max(0, api.progress);
+  const progressPercent =
+    api.recording.duration > 0
+      ? Math.min(100, Math.round((progressSeconds / api.recording.duration) * 100))
+      : 0;
+
   return {
     recording: mapApiRecording(api.recording),
-    progress: api.progress,
+    progress: progressPercent,
+    resumeAt: progressSeconds,
     lastWatchedAt: new Date(api.lastWatchedAt),
   };
 }

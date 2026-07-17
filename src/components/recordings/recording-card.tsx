@@ -33,6 +33,7 @@ import {
 interface RecordingCardProps {
   recording: Recording;
   progress?: number; // 0-100 for continue watching
+  startAt?: number; // seconds for resume links
   view?: "grid" | "list";
   className?: string;
 }
@@ -41,9 +42,15 @@ interface RecordingCardProps {
 // RecordingCard
 // ---------------------------------------------------------------------------
 
+function getRecordingHref(recordingId: string, startAt?: number): string {
+  if (!startAt || startAt <= 0) return `/recordings/${recordingId}`;
+  return `/recordings/${recordingId}?t=${Math.floor(startAt)}`;
+}
+
 export default function RecordingCard({
   recording,
   progress,
+  startAt,
   view = "grid",
   className,
 }: RecordingCardProps) {
@@ -52,6 +59,7 @@ export default function RecordingCard({
       <RecordingListItem
         recording={recording}
         progress={progress}
+        startAt={startAt}
         className={className}
       />
     );
@@ -61,7 +69,7 @@ export default function RecordingCard({
   const isProcessing = recording.status === "processing";
 
   return (
-    <Link href={`/recordings/${recording.id}`} className="block">
+    <Link href={getRecordingHref(recording.id, startAt)} className="block">
       <motion.div
         whileHover={{ scale: 1.02 }}
         transition={{ type: "spring", stiffness: 300, damping: 20 }}
@@ -199,17 +207,19 @@ export default function RecordingCard({
 function RecordingListItem({
   recording,
   progress,
+  startAt,
   className,
 }: {
   recording: Recording;
   progress?: number;
+  startAt?: number;
   className?: string;
 }) {
   const gradient = getGradientForRecording(recording.id);
   const isProcessing = recording.status === "processing";
 
   return (
-    <Link href={`/recordings/${recording.id}`} className="block">
+    <Link href={getRecordingHref(recording.id, startAt)} className="block">
       <div
         className={cn(
           "group flex items-center gap-4 rounded-xl border border-border bg-card p-3 transition-all duration-200 hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5",
@@ -355,6 +365,7 @@ export function ContinueWatchingCard({
     <RecordingCard
       recording={item.recording}
       progress={item.progress}
+      startAt={item.resumeAt}
       className={className}
     />
   );

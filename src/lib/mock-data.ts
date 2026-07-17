@@ -411,6 +411,7 @@ export const mockRecordings: Recording[] = [
 export interface ContinueWatchingItem {
   recording: Recording;
   progress: number; // 0-100 percentage
+  resumeAt?: number; // seconds
   lastWatchedAt: Date;
 }
 

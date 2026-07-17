@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useCallback, useEffect, useRef, use } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import {
@@ -170,6 +170,18 @@ function formatTimestamp(seconds: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+function getMeaningfulViewThreshold(durationSec: number): number {
+  if (!Number.isFinite(durationSec) || durationSec <= 0) return 5;
+  return Math.max(1, Math.min(5, Math.ceil(durationSec * 0.1)));
+}
+
+function parseResumeTime(value: string | null): number {
+  if (!value) return 0;
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds) || seconds <= 0) return 0;
+  return Math.floor(seconds);
+}
+
 // ─── Page Component ──────────────────────────────────────────────────────────
 
 export default function RecordingDetailPage({
@@ -179,7 +191,13 @@ export default function RecordingDetailPage({
 }) {
   const { id } = use(params);
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { data: session } = useSession();
+  const resumeAtParam = searchParams.get("t");
+  const resumeAt = useMemo(
+    () => parseResumeTime(resumeAtParam),
+    [resumeAtParam]
+  );
 
   // API data state
   const [recording, setRecording] = useState<ApiRecording | null>(null);
@@ -203,6 +221,10 @@ export default function RecordingDetailPage({
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const hasTrackedViewRef = useRef(false);
+  const hasAppliedResumeRef = useRef(false);
+  const lastWatchSyncAtRef = useRef(0);
+  const currentTimeRef = useRef(0);
 
   // Transcript search
   const [transcriptSearch, setTranscriptSearch] = useState("");
@@ -288,6 +310,106 @@ export default function RecordingDetailPage({
     video.muted = isMuted;
   }, [isMuted]);
 
+  useEffect(() => {
+    currentTimeRef.current = currentTime;
+  }, [currentTime]);
+
+  useEffect(() => {
+    hasTrackedViewRef.current = false;
+    hasAppliedResumeRef.current = false;
+    lastWatchSyncAtRef.current = 0;
+    currentTimeRef.current = 0;
+    setCurrentTime(0);
+    setDuration(0);
+    setIsPlaying(false);
+  }, [id, resumeAt]);
+
+  const syncWatchHistory = useCallback(
+    async ({
+      progress,
+      completed,
+      force = false,
+    }: {
+      progress: number;
+      completed?: boolean;
+      force?: boolean;
+      keepalive?: boolean;
+    }) => {
+      if (!session?.user?.id) return;
+
+      const now = Date.now();
+      if (!force && now - lastWatchSyncAtRef.current < 15_000) return;
+      lastWatchSyncAtRef.current = now;
+
+      try {
+        const res = await fetch("/api/watch-history", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          keepalive,
+          body: JSON.stringify({
+            recordingId: id,
+            progress: Math.max(0, Math.floor(progress)),
+            ...(completed === undefined ? {} : { completed }),
+          }),
+        });
+
+        if (!res.ok) return;
+
+        const data = (await res.json()) as {
+          totalViews?: number;
+        };
+
+        hasTrackedViewRef.current = true;
+
+        if (typeof data.totalViews === "number") {
+          setRecording((current) =>
+            current
+              ? {
+                  ...current,
+                  _count: {
+                    ...current._count,
+                    watchHistory: data.totalViews,
+                  },
+                }
+              : current
+          );
+        }
+      } catch {
+        // Watch history should never interrupt playback.
+      }
+    },
+    [id, session?.user?.id]
+  );
+
+  const getCurrentVideoProgress = useCallback(() => {
+    const video = videoRef.current;
+    return Math.floor(video?.currentTime ?? currentTimeRef.current);
+  }, []);
+
+  const shouldSaveProgress = useCallback(
+    (progress: number) => {
+      if (progress <= 0) return false;
+      if (hasTrackedViewRef.current) return true;
+
+      const video = videoRef.current;
+      const threshold = getMeaningfulViewThreshold(
+        video?.duration || duration || recording?.duration || 0
+      );
+
+      return progress >= threshold;
+    },
+    [duration, recording?.duration]
+  );
+
+  const saveCurrentProgress = useCallback(
+    ({ keepalive = false }: { keepalive?: boolean } = {}) => {
+      const progress = getCurrentVideoProgress();
+      if (!shouldSaveProgress(progress)) return;
+      void syncWatchHistory({ progress, force: true, keepalive });
+    },
+    [getCurrentVideoProgress, shouldSaveProgress, syncWatchHistory]
+  );
+
   const togglePlay = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -302,17 +424,96 @@ export default function RecordingDetailPage({
 
   const handleVideoTimeUpdate = useCallback(() => {
     const video = videoRef.current;
-    if (video) setCurrentTime(Math.floor(video.currentTime));
-  }, []);
+    if (!video) return;
+
+    const nextTime = Math.floor(video.currentTime);
+    currentTimeRef.current = nextTime;
+    setCurrentTime(nextTime);
+
+    if (!hasTrackedViewRef.current) {
+      const threshold = getMeaningfulViewThreshold(
+        video.duration || duration || recording?.duration || 0
+      );
+
+      if (nextTime >= threshold) {
+        void syncWatchHistory({ progress: nextTime, force: true });
+      }
+
+      return;
+    }
+
+    void syncWatchHistory({ progress: nextTime });
+  }, [duration, recording?.duration, syncWatchHistory]);
 
   const handleVideoLoadedMetadata = useCallback(() => {
     const video = videoRef.current;
-    if (video) setDuration(Math.floor(video.duration));
+    if (!video) return;
+
+    const metadataDuration = Number.isFinite(video.duration)
+      ? Math.floor(video.duration)
+      : 0;
+    setDuration(metadataDuration);
+
+    if (hasAppliedResumeRef.current || resumeAt <= 0) return;
+
+    const maxSeek =
+      metadataDuration > 1 ? Math.max(0, metadataDuration - 1) : resumeAt;
+    const safeResumeAt = Math.min(resumeAt, maxSeek);
+
+    if (safeResumeAt > 0) {
+      video.currentTime = safeResumeAt;
+      currentTimeRef.current = safeResumeAt;
+      setCurrentTime(safeResumeAt);
+    }
+
+    hasAppliedResumeRef.current = true;
+  }, [resumeAt]);
+
+  const handleVideoPlay = useCallback(() => {
+    setIsPlaying(true);
   }, []);
+
+  const handleVideoPause = useCallback(() => {
+    setIsPlaying(false);
+    if (!videoRef.current?.ended) {
+      saveCurrentProgress();
+    }
+  }, [saveCurrentProgress]);
+
+  const handleVideoSeeked = useCallback(() => {
+    if (videoRef.current?.paused && !videoRef.current.ended) {
+      saveCurrentProgress();
+    }
+  }, [saveCurrentProgress]);
 
   const handleVideoEnded = useCallback(() => {
     setIsPlaying(false);
-  }, []);
+    void syncWatchHistory({
+      progress: Math.floor(
+        videoRef.current?.duration || duration || recording?.duration || 0
+      ),
+      completed: true,
+      force: true,
+    });
+  }, [duration, recording?.duration, syncWatchHistory]);
+
+  useEffect(() => {
+    const handlePageHide = () => saveCurrentProgress({ keepalive: true });
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        saveCurrentProgress({ keepalive: true });
+      }
+    };
+
+    window.addEventListener("pagehide", handlePageHide);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("pagehide", handlePageHide);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      saveCurrentProgress({ keepalive: true });
+    };
+  }, [saveCurrentProgress]);
 
   // Submit a new comment
   const handleSubmitComment = useCallback(async () => {
@@ -560,8 +761,9 @@ export default function RecordingDetailPage({
                   onTimeUpdate={handleVideoTimeUpdate}
                   onLoadedMetadata={handleVideoLoadedMetadata}
                   onEnded={handleVideoEnded}
-                  onPlay={() => setIsPlaying(true)}
-                  onPause={() => setIsPlaying(false)}
+                  onPlay={handleVideoPlay}
+                  onPause={handleVideoPause}
+                  onSeeked={handleVideoSeeked}
                   playsInline
                 />
               ) : (

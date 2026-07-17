@@ -104,6 +104,11 @@ interface ApiRecording {
     watchHistory?: number;
     bookmarks?: number;
   };
+  viewerWatchHistory?: {
+    progress: number;
+    completed: boolean;
+    lastWatchedAt: string;
+  } | null;
   permissions?: {
     canDelete: boolean;
   };
@@ -182,6 +187,81 @@ function parseResumeTime(value: string | null): number {
   return Math.floor(seconds);
 }
 
+const WATCH_PROGRESS_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 30;
+
+type StoredWatchProgress = {
+  progress: number;
+  completed?: boolean;
+  updatedAt: number;
+};
+
+function getWatchProgressStorageKey(recordingId: string, userId?: string) {
+  return userId ? `replayhq:watch-progress:${userId}:${recordingId}` : null;
+}
+
+function readStoredWatchProgress(key: string | null): number {
+  if (!key || typeof window === "undefined") return 0;
+
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return 0;
+
+    const parsed = JSON.parse(raw) as Partial<StoredWatchProgress>;
+    const progress = Math.floor(Number(parsed.progress));
+    const updatedAt = Number(parsed.updatedAt);
+
+    if (
+      parsed.completed ||
+      !Number.isFinite(progress) ||
+      progress <= 0 ||
+      !Number.isFinite(updatedAt) ||
+      Date.now() - updatedAt > WATCH_PROGRESS_MAX_AGE_MS
+    ) {
+      window.localStorage.removeItem(key);
+      return 0;
+    }
+
+    return progress;
+  } catch {
+    return 0;
+  }
+}
+
+function writeStoredWatchProgress(
+  key: string | null,
+  progress: number,
+  completed = false
+) {
+  if (!key || typeof window === "undefined") return;
+
+  const safeProgress = Math.max(0, Math.floor(progress));
+  if (safeProgress <= 0) return;
+
+  try {
+    window.localStorage.setItem(
+      key,
+      JSON.stringify({
+        progress: safeProgress,
+        completed,
+        updatedAt: Date.now(),
+      } satisfies StoredWatchProgress)
+    );
+  } catch {
+    // Server watch history remains canonical if browser storage is unavailable.
+  }
+}
+
+function clearResumeTimeParam() {
+  if (typeof window === "undefined") return;
+
+  const url = new URL(window.location.href);
+  if (!url.searchParams.has("t")) return;
+
+  url.searchParams.delete("t");
+  const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+  window.history.replaceState(null, "", nextUrl);
+}
+
 // ─── Page Component ──────────────────────────────────────────────────────────
 
 export default function RecordingDetailPage({
@@ -192,11 +272,15 @@ export default function RecordingDetailPage({
   const { id } = use(params);
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { data: session } = useSession();
+  const { data: session, status: sessionStatus } = useSession();
   const resumeAtParam = searchParams.get("t");
-  const resumeAt = useMemo(
+  const explicitResumeAt = useMemo(
     () => parseResumeTime(resumeAtParam),
     [resumeAtParam]
+  );
+  const progressStorageKey = useMemo(
+    () => getWatchProgressStorageKey(id, session?.user?.id),
+    [id, session?.user?.id]
   );
 
   // API data state
@@ -206,6 +290,13 @@ export default function RecordingDetailPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [submittingComment, setSubmittingComment] = useState(false);
+  const [localResumeAt, setLocalResumeAt] = useState(0);
+  const [hasLoadedLocalResume, setHasLoadedLocalResume] = useState(false);
+  const savedResumeAt =
+    recording?.viewerWatchHistory && !recording.viewerWatchHistory.completed
+      ? recording.viewerWatchHistory.progress
+      : 0;
+  const resumeAt = localResumeAt || savedResumeAt || explicitResumeAt;
 
   // Player state
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -223,8 +314,11 @@ export default function RecordingDetailPage({
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const hasTrackedViewRef = useRef(false);
   const hasAppliedResumeRef = useRef(false);
+  const appliedResumeAtRef = useRef(0);
+  const programmaticSeekTargetRef = useRef<number | null>(null);
   const lastWatchSyncAtRef = useRef(0);
   const currentTimeRef = useRef(0);
+  const lastLocalProgressStoreRef = useRef(0);
 
   // Transcript search
   const [transcriptSearch, setTranscriptSearch] = useState("");
@@ -315,14 +409,29 @@ export default function RecordingDetailPage({
   }, [currentTime]);
 
   useEffect(() => {
+    if (sessionStatus === "loading") {
+      setHasLoadedLocalResume(false);
+      return;
+    }
+
+    const storedProgress = readStoredWatchProgress(progressStorageKey);
+    lastLocalProgressStoreRef.current = storedProgress;
+    setLocalResumeAt(storedProgress);
+    setHasLoadedLocalResume(true);
+  }, [progressStorageKey, sessionStatus]);
+
+  useEffect(() => {
     hasTrackedViewRef.current = false;
     hasAppliedResumeRef.current = false;
+    appliedResumeAtRef.current = 0;
+    programmaticSeekTargetRef.current = null;
     lastWatchSyncAtRef.current = 0;
     currentTimeRef.current = 0;
+    lastLocalProgressStoreRef.current = 0;
     setCurrentTime(0);
     setDuration(0);
     setIsPlaying(false);
-  }, [id, resumeAt]);
+  }, [explicitResumeAt, id]);
 
   const syncWatchHistory = useCallback(
     async ({
@@ -402,13 +511,38 @@ export default function RecordingDetailPage({
     [duration, recording?.duration]
   );
 
+  const persistProgressLocally = useCallback(
+    (progress: number, completed = false) => {
+      const nextProgress = Math.max(0, Math.floor(progress));
+      if (nextProgress <= 0) return;
+
+      writeStoredWatchProgress(progressStorageKey, nextProgress, completed);
+      lastLocalProgressStoreRef.current = nextProgress;
+
+      if (completed) {
+        setLocalResumeAt(0);
+        return;
+      }
+
+      clearResumeTimeParam();
+      setLocalResumeAt(nextProgress);
+    },
+    [progressStorageKey]
+  );
+
   const saveCurrentProgress = useCallback(
     ({ keepalive = false }: { keepalive?: boolean } = {}) => {
       const progress = getCurrentVideoProgress();
       if (!shouldSaveProgress(progress)) return;
+      persistProgressLocally(progress);
       void syncWatchHistory({ progress, force: true, keepalive });
     },
-    [getCurrentVideoProgress, shouldSaveProgress, syncWatchHistory]
+    [
+      getCurrentVideoProgress,
+      persistProgressLocally,
+      shouldSaveProgress,
+      syncWatchHistory,
+    ]
   );
 
   const togglePlay = useCallback(() => {
@@ -431,6 +565,13 @@ export default function RecordingDetailPage({
     currentTimeRef.current = nextTime;
     setCurrentTime(nextTime);
 
+    if (
+      shouldSaveProgress(nextTime) &&
+      nextTime !== lastLocalProgressStoreRef.current
+    ) {
+      persistProgressLocally(nextTime);
+    }
+
     if (!hasTrackedViewRef.current) {
       const threshold = getMeaningfulViewThreshold(
         video.duration || duration || recording?.duration || 0
@@ -444,7 +585,57 @@ export default function RecordingDetailPage({
     }
 
     void syncWatchHistory({ progress: nextTime });
-  }, [duration, recording?.duration, syncWatchHistory]);
+  }, [
+    duration,
+    persistProgressLocally,
+    recording?.duration,
+    shouldSaveProgress,
+    syncWatchHistory,
+  ]);
+
+  const applyResumePosition = useCallback(
+    (metadataDuration?: number) => {
+      const video = videoRef.current;
+      if (!video || resumeAt <= 0) return;
+      if (!hasLoadedLocalResume) return;
+      if (video.readyState < 1) return;
+
+      if (hasAppliedResumeRef.current) {
+        const currentPosition = Math.floor(video.currentTime);
+        const isStillAtAppliedPosition =
+          Math.abs(currentPosition - appliedResumeAtRef.current) <= 1;
+
+        if (!video.paused || !isStillAtAppliedPosition) return;
+      }
+
+      const intrinsicDuration = Number.isFinite(video.duration)
+        ? Math.floor(video.duration)
+        : 0;
+      const resolvedDuration =
+        (metadataDuration ?? intrinsicDuration) ||
+        duration ||
+        recording?.duration ||
+        0;
+
+      const maxSeek =
+        resolvedDuration > 1 ? Math.max(0, resolvedDuration - 1) : resumeAt;
+      const safeResumeAt = Math.min(resumeAt, maxSeek);
+
+      if (safeResumeAt > 0) {
+        programmaticSeekTargetRef.current = safeResumeAt;
+        video.currentTime = safeResumeAt;
+        currentTimeRef.current = safeResumeAt;
+        setCurrentTime(safeResumeAt);
+        hasAppliedResumeRef.current = true;
+        appliedResumeAtRef.current = safeResumeAt;
+      }
+    },
+    [duration, hasLoadedLocalResume, recording?.duration, resumeAt]
+  );
+
+  useEffect(() => {
+    applyResumePosition();
+  }, [applyResumePosition]);
 
   const handleVideoLoadedMetadata = useCallback(() => {
     const video = videoRef.current;
@@ -455,20 +646,8 @@ export default function RecordingDetailPage({
       : 0;
     setDuration(metadataDuration);
 
-    if (hasAppliedResumeRef.current || resumeAt <= 0) return;
-
-    const maxSeek =
-      metadataDuration > 1 ? Math.max(0, metadataDuration - 1) : resumeAt;
-    const safeResumeAt = Math.min(resumeAt, maxSeek);
-
-    if (safeResumeAt > 0) {
-      video.currentTime = safeResumeAt;
-      currentTimeRef.current = safeResumeAt;
-      setCurrentTime(safeResumeAt);
-    }
-
-    hasAppliedResumeRef.current = true;
-  }, [resumeAt]);
+    applyResumePosition(metadataDuration);
+  }, [applyResumePosition]);
 
   const handleVideoPlay = useCallback(() => {
     setIsPlaying(true);
@@ -482,21 +661,37 @@ export default function RecordingDetailPage({
   }, [saveCurrentProgress]);
 
   const handleVideoSeeked = useCallback(() => {
-    if (videoRef.current?.paused && !videoRef.current.ended) {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const programmaticTarget = programmaticSeekTargetRef.current;
+    if (
+      programmaticTarget !== null &&
+      Math.abs(Math.floor(video.currentTime) - programmaticTarget) <= 1
+    ) {
+      programmaticSeekTargetRef.current = null;
+      return;
+    }
+
+    programmaticSeekTargetRef.current = null;
+
+    if (!video.ended) {
       saveCurrentProgress();
     }
   }, [saveCurrentProgress]);
 
   const handleVideoEnded = useCallback(() => {
     setIsPlaying(false);
+    const finalProgress = Math.floor(
+      videoRef.current?.duration || duration || recording?.duration || 0
+    );
+    persistProgressLocally(finalProgress, true);
     void syncWatchHistory({
-      progress: Math.floor(
-        videoRef.current?.duration || duration || recording?.duration || 0
-      ),
+      progress: finalProgress,
       completed: true,
       force: true,
     });
-  }, [duration, recording?.duration, syncWatchHistory]);
+  }, [duration, persistProgressLocally, recording?.duration, syncWatchHistory]);
 
   useEffect(() => {
     const handlePageHide = () => saveCurrentProgress({ keepalive: true });
@@ -582,23 +777,39 @@ export default function RecordingDetailPage({
       const rect = e.currentTarget.getBoundingClientRect();
       const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
       const newTime = Math.floor(pct * dur);
+      programmaticSeekTargetRef.current = null;
       currentTimeRef.current = newTime;
       setCurrentTime(newTime);
       if (videoRef.current) videoRef.current.currentTime = newTime;
+
+      if (shouldSaveProgress(newTime)) {
+        persistProgressLocally(newTime);
+        void syncWatchHistory({ progress: newTime, force: true });
+      }
     },
-    [videoDuration]
+    [persistProgressLocally, shouldSaveProgress, syncWatchHistory, videoDuration]
   );
 
   // Jump to timestamp
-  const jumpTo = useCallback((seconds: number) => {
-    currentTimeRef.current = seconds;
-    setCurrentTime(seconds);
-    if (videoRef.current) {
-      videoRef.current.currentTime = seconds;
-      videoRef.current.play();
-    }
-    setIsPlaying(true);
-  }, []);
+  const jumpTo = useCallback(
+    (seconds: number) => {
+      programmaticSeekTargetRef.current = null;
+      currentTimeRef.current = seconds;
+      setCurrentTime(seconds);
+      if (videoRef.current) {
+        videoRef.current.currentTime = seconds;
+        videoRef.current.play();
+      }
+
+      if (shouldSaveProgress(seconds)) {
+        persistProgressLocally(seconds);
+        void syncWatchHistory({ progress: seconds, force: true });
+      }
+
+      setIsPlaying(true);
+    },
+    [persistProgressLocally, shouldSaveProgress, syncWatchHistory]
+  );
 
   // Real transcript — null means not yet processed (show processing UI)
   const transcript: TranscriptEntry[] | null = useMemo(() => {

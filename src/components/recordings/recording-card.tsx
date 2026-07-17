@@ -365,7 +365,6 @@ export function ContinueWatchingCard({
     <RecordingCard
       recording={item.recording}
       progress={item.progress}
-      startAt={item.resumeAt}
       className={className}
     />
   );

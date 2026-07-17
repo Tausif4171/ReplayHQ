@@ -2,86 +2,109 @@
 
 # ReplayHQ
 
-**AI-powered internal knowledge replay platform for teams**
+**AI-powered internal video knowledge base for teams**
 
-Turn scattered Zoom recordings into a searchable, organized knowledge base your team actually uses.
+ReplayHQ turns team recordings into a searchable, organized knowledge hub with secure access, upload workflows, AI transcripts, AI summaries, and admin-controlled team access.
 
 [![Next.js](https://img.shields.io/badge/Next.js-15-black?logo=next.js)](https://nextjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-3178C6?logo=typescript&logoColor=white)](https://typescriptlang.org/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind-3.4-06B6D4?logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
 [![Prisma](https://img.shields.io/badge/Prisma-6-2D3748?logo=prisma)](https://prisma.io/)
+[![BullMQ](https://img.shields.io/badge/BullMQ-5-red)](https://bullmq.io/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 </div>
 
 ---
 
-## The Problem
+## Why ReplayHQ
 
-Most teams track internal learning sessions in a Google Doc — a list of Zoom links, dates, and presenters. Nobody watches them. Knowledge gets lost. New hires start from zero.
+Teams often collect Zoom recordings, demos, onboarding sessions, and internal learning videos in scattered folders or documents. The recordings exist, but the knowledge inside them is hard to search, hard to revisit, and easy to lose.
 
-## The Solution
-
-**ReplayHQ** transforms chaotic recording archives into an organized, searchable platform — like an internal YouTube built for engineering teams. AI-generated transcripts, smart search, and curated playlists make it effortless to find and learn from past sessions.
+ReplayHQ is an internal YouTube-style platform for team knowledge. It gives approved team members a central place to upload recordings, watch them back, search transcripts, read AI-generated summaries, and manage access safely.
 
 ---
 
-## Preview
+<!--
+Screenshot checklist before publishing the portfolio README:
+- public/screenshots/dashboard.png
+- public/screenshots/upload.png
+- public/screenshots/recording-transcript.png
+- public/screenshots/recording-summary.png
+- public/screenshots/team-access.png
 
-> **Note:** The app currently runs with mock data. No backend services needed to explore the UI.
-
-| Dashboard | Recordings | Video Player |
-|:---------:|:----------:|:------------:|
-| Stats, continue watching, recent uploads | Grid/list view with filters | Custom player with transcript & AI summary |
-
-| Search | Upload | Analytics |
-|:------:|:------:|:---------:|
-| Full-text + transcript search | 3-step wizard with drag & drop | Team engagement metrics |
-
----
+Recommended layout: one hero screenshot near the top, then a compact
+two-column gallery under a "Product Preview" section.
+-->
 
 ## Features
 
-### Core
-- **Recording Library** — Browse, filter, and search all team recordings in grid or list view
-- **Video Player** — Custom-built player with playback speed, PiP, and fullscreen
-- **AI Transcripts** — Timestamped, searchable transcripts synced to video
-- **AI Summaries** — Auto-generated key takeaways, action items, and topic tags
-- **Smart Search** — Search across titles, descriptions, and transcript content
+### Access And Identity
 
-### Organization
-- **Series & Tags** — Group recordings by series (e.g., "Kubernetes Deep Dives") and tag by topic
-- **Playlists** — Curate learning paths for onboarding, deep dives, or team training
-- **Continue Watching** — Pick up where you left off
+- **Google sign-in with approval gating** - only pre-approved users can sign in with Google.
+- **Email/password login** - approved users can set or reset a ReplayHQ password.
+- **Access requests** - new users can request access from the login screen.
+- **RBAC roles** - `ADMIN`, `UPLOADER`, and `VIEWER` roles are modeled in Prisma and carried into the session.
+- **Admin team access** - admins can review access requests, assign roles, trigger password setup emails, and manage members.
 
-### Team
-- **Analytics Dashboard** — Track watch time, engagement, and popular content
-- **Comments** — Timestamped discussions on recordings
-- **Upload Wizard** — Drag-and-drop upload with metadata and AI processing options
+### Recording Workflow
 
-### Coming Soon
-- Google SSO authentication
-- MinIO-powered video storage
-- BullMQ background processing pipeline
-- Slack notifications for new uploads
-- Vector search with pgvector embeddings
+- **Direct uploads** - browser uploads video files through presigned S3-compatible URLs.
+- **Recording library** - browse and filter recordings with presenter, series, tags, views, and comments metadata.
+- **Custom recording page** - video playback, speed controls, picture-in-picture, transcript search, comments, save, and copy link actions.
+- **Admin delete** - destructive recording deletion is restricted to admins and cleans up storage objects when possible.
+
+### AI Pipeline
+
+- **BullMQ background processing** - upload and Zoom import jobs enqueue downstream processing through Redis.
+- **Local transcription** - `whisper.cpp` extracts timestamped transcript segments from uploaded videos.
+- **Local summarization** - Ollama generates summary, TLDR, key takeaways, and suggested tags.
+- **Live processing state** - recording pages poll for transcript and summary completion without requiring a manual refresh.
+- **Recovery worker** - the transcribe worker can recover `READY` recordings that are missing transcripts.
+
+### Organization And Discovery
+
+- **Series and tags** - recordings can be grouped into series and connected to topic tags.
+- **Transcript-aware detail view** - timestamped transcript entries can jump the video to the matching moment.
+- **Comments and watch history** - schema and APIs support engagement metadata.
+- **Search, playlists, and analytics surfaces** - UI/product surfaces exist and are ready for deeper backend wiring.
+
+### Integrations
+
+- **Zoom OAuth integration** - users can connect Zoom, list cloud recordings, and import MP4 recordings.
+- **Zoom import worker** - downloads Zoom recordings, stores them in S3-compatible storage, and chains into transcription.
+- **Resend email delivery** - password setup/reset and access request notifications use Resend when configured.
 
 ---
 
-## Tech Stack
+## Architecture
 
-| Layer | Technology |
-|-------|-----------|
-| **Framework** | [Next.js 15](https://nextjs.org/) (App Router) |
-| **Language** | [TypeScript 5.7](https://typescriptlang.org/) |
-| **Styling** | [Tailwind CSS 3.4](https://tailwindcss.com/) + [shadcn/ui](https://ui.shadcn.com/) |
-| **Animations** | [Framer Motion](https://motion.dev/) |
-| **State** | [Zustand](https://zustand.docs.pmnd.rs/) + [React Query](https://tanstack.com/query) |
-| **Database** | [PostgreSQL](https://postgresql.org/) + [Prisma ORM](https://prisma.io/) |
-| **Storage** | [MinIO](https://min.io/) (S3-compatible) |
-| **Queue** | [BullMQ](https://bullmq.io/) + [Redis](https://redis.io/) |
-| **Auth** | [NextAuth.js v5](https://authjs.dev/) (Google OAuth) |
-| **AI** | OpenAI (transcription + summarization) |
+```text
+Browser upload
+  -> presigned S3-compatible upload URL
+  -> Recording row in PostgreSQL
+  -> BullMQ transcribe job in Redis
+  -> transcribe worker downloads video from storage
+  -> ffmpeg extracts audio
+  -> whisper.cpp writes transcript + timestamped segments
+  -> BullMQ summarize job
+  -> Ollama writes TLDR + summary + takeaways + tags
+  -> recording page updates transcript/summary sections
+```
+
+### Runtime Pieces
+
+| Area | Implementation |
+|------|----------------|
+| App | Next.js 15 App Router, React 19, TypeScript |
+| Auth | Auth.js / NextAuth v5, Google OAuth, Prisma adapter, custom password sessions |
+| Database | PostgreSQL, Prisma ORM, pgvector-ready schema |
+| Storage | S3-compatible object storage through AWS SDK; local MinIO for development |
+| Queues | BullMQ with Redis |
+| Transcription | Local `whisper.cpp` worker with ffmpeg audio extraction |
+| Summaries | Ollama worker, default model `qwen2.5:7b` |
+| Email | Resend API for setup/reset/access request emails |
+| UI | Tailwind CSS, Radix primitives, shadcn-style components, lucide-react icons |
 
 ---
 
@@ -89,104 +112,171 @@ Most teams track internal learning sessions in a Google Doc — a list of Zoom l
 
 ### Prerequisites
 
-- **Node.js** 18+
-- **npm** or **pnpm**
-- **Docker** (optional — for database, Redis, MinIO)
+- Node.js 20+
+- npm
+- Docker Desktop
+- Homebrew on macOS for local AI dependencies
+- Google OAuth credentials for full sign-in testing
 
-### Quick Start
+### 1. Install Dependencies
 
 ```bash
-# Clone the repo
 git clone https://github.com/<your-username>/replayhq.git
 cd replayhq
-
-# Install dependencies
 npm install
-
-# Start the dev server
-npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) — the app runs with mock data out of the box.
-
-### Full Setup (with backend services)
+### 2. Configure Environment
 
 ```bash
-# Copy environment variables
 cp .env.example .env
+```
 
-# Start PostgreSQL, Redis, and MinIO
+Update at least these local values:
+
+```env
+DATABASE_URL="postgresql://replayhq:replayhq_dev@localhost:5433/replayhq"
+NEXTAUTH_URL="http://localhost:3000"
+NEXTAUTH_SECRET="replace-with-a-random-secret"
+GOOGLE_CLIENT_ID="..."
+GOOGLE_CLIENT_SECRET="..."
+REDIS_URL="redis://localhost:6379"
+```
+
+Email delivery is optional locally. If `RESEND_API_KEY` and `EMAIL_FROM` are not set, password setup/reset links are logged in development instead of being emailed.
+
+### 3. Start Local Infrastructure
+
+```bash
 docker compose up -d
+```
 
-# Generate Prisma client and push schema
-npm run db:generate
-npm run db:push
+This starts:
 
-# Start the dev server
+- PostgreSQL with pgvector on `localhost:5433`
+- Redis on `localhost:6379`
+- MinIO API on `localhost:9000`
+- MinIO console on `localhost:9001`
+
+### 4. Apply Database Schema
+
+```bash
+npx prisma migrate deploy
+```
+
+For local seed/demo data:
+
+```bash
+npx prisma db seed
+```
+
+### 5. Start The App
+
+```bash
 npm run dev
 ```
 
-### Local AI Stack (transcription)
+Open [http://localhost:3000](http://localhost:3000).
 
-Transcription runs entirely on your machine via [whisper.cpp](https://github.com/ggerganov/whisper.cpp) — no API keys, no cost, GPU-accelerated on Apple Silicon.
+---
+
+## Local AI Workers
+
+Transcription and summaries run outside the Next.js server. Keep each worker running in its own terminal while testing uploads.
+
+### Transcription Setup
 
 ```bash
-# Install runtime dependencies
 brew install ffmpeg whisper-cpp
-
-# Download a whisper model (large-v3 recommended for multilingual content)
 mkdir -p ~/whisper-models
 curl -L -o ~/whisper-models/ggml-large-v3.bin \
   https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin
+```
 
-# Point the worker at the model in .env
-echo 'WHISPER_MODEL_PATH="'$HOME'/whisper-models/ggml-large-v3.bin"' >> .env
+Set the model path in `.env`:
 
-# In a second terminal, start the transcribe worker
+```env
+WHISPER_MODEL_PATH="/Users/<you>/whisper-models/ggml-large-v3.bin"
+```
+
+Run the transcribe worker:
+
+```bash
 npm run worker:transcribe
 ```
 
-| Model | Size | Speed (M-series) | Best for |
-|-------|------|------------------|----------|
-| `ggml-base.en.bin` | 141 MB | ~35× realtime | English-only, fastest |
-| `ggml-small.bin` | 465 MB | ~10× realtime | Multilingual, balanced |
-| `ggml-large-v3.bin` | 2.9 GB | ~4× realtime | **Recommended** — best quality, including Hindi/non-English |
+### Summary Setup
 
-By default the worker auto-detects the source language and translates to English (matching Otter / YouTube auto-captions). Pass `translateToEnglish: false` to the `WhisperCppTranscriber` constructor for source-language transcripts.
+Install and run Ollama, then pull the default model:
+
+```bash
+ollama pull qwen2.5:7b
+```
+
+Run the summarize worker:
+
+```bash
+npm run worker:summarize
+```
+
+Optional environment overrides:
+
+```env
+OLLAMA_BASE_URL="http://localhost:11434"
+SUMMARIZE_MODEL="qwen2.5:7b"
+```
+
+### Worker Model Trade-offs
+
+| Model | Size | Typical Use |
+|-------|------|-------------|
+| `ggml-base.en.bin` | 141 MB | Fast English-only transcription |
+| `ggml-small.bin` | 465 MB | Balanced multilingual transcription |
+| `ggml-large-v3.bin` | 2.9 GB | Best quality; recommended for demos |
+
+---
+
+## Production Notes
+
+ReplayHQ can run on Vercel for the web app, with managed PostgreSQL, managed Redis, and S3-compatible storage. Long-running workers should run outside the web server because transcription and summarization are background jobs.
+
+Production workers need the same database, Redis, storage, and AI environment variables as the web app. Run them as separate long-lived processes:
+
+```bash
+npm run worker:transcribe
+```
+
+```bash
+npm run worker:summarize
+```
+
+Never commit production env files or secrets.
 
 ---
 
 ## Project Structure
 
-```
+```text
 replayhq/
-├── prisma/
-│   └── schema.prisma          # Database schema
-├── src/
-│   ├── app/
-│   │   ├── (auth)/
-│   │   │   └── login/         # Login page
-│   │   ├── (dashboard)/
-│   │   │   ├── analytics/     # Team analytics
-│   │   │   ├── playlists/     # Curated playlists
-│   │   │   ├── recordings/    # Browse + video player
-│   │   │   ├── search/        # Smart search
-│   │   │   ├── settings/      # User preferences
-│   │   │   ├── upload/        # Upload wizard
-│   │   │   ├── layout.tsx     # Dashboard shell
-│   │   │   └── page.tsx       # Home / dashboard
-│   │   ├── globals.css        # Theme + design tokens
-│   │   └── layout.tsx         # Root layout
-│   ├── components/
-│   │   ├── layout/            # Sidebar, header
-│   │   ├── recordings/        # Recording card variants
-│   │   └── ui/                # shadcn/ui primitives
-│   └── lib/
-│       ├── mock-data.ts       # Sample data for development
-│       └── utils.ts           # Utility functions
-├── docker-compose.yml         # Dev infrastructure
-├── tailwind.config.ts
-└── package.json
++-- prisma/
+|   +-- migrations/          # Production-safe Prisma migrations
+|   +-- schema.prisma        # Data model, roles, recordings, transcripts, access requests
+|   +-- seed.ts              # Demo data
++-- src/
+|   +-- app/
+|   |   +-- (auth)/          # Login and password reset pages
+|   |   +-- (dashboard)/     # Home, recordings, upload, search, playlists, analytics, settings
+|   |   +-- api/             # Auth, uploads, recordings, admin, password, Zoom APIs
+|   +-- components/
+|   |   +-- layout/          # Dashboard shell
+|   |   +-- recordings/      # Recording cards
+|   |   +-- ui/              # Reusable UI primitives
+|   +-- lib/                 # Auth, Prisma, queue, storage, AI, email, Zoom helpers
+|   +-- types/               # NextAuth session types
+|   +-- workers/             # BullMQ transcribe, summarize, and Zoom import workers
++-- docker-compose.yml       # Local Postgres, Redis, MinIO
++-- package.json
++-- README.md
 ```
 
 ---
@@ -195,28 +285,59 @@ replayhq/
 
 | Command | Description |
 |---------|-------------|
-| `npm run dev` | Start development server |
-| `npm run build` | Production build |
-| `npm run start` | Start production server |
+| `npm run dev` | Start the Next.js development server |
+| `npm run build` | Generate Prisma client and build the production app |
+| `npm run start` | Start the built Next.js app |
 | `npm run lint` | Run ESLint |
 | `npm run db:generate` | Generate Prisma client |
-| `npm run db:push` | Push schema to database |
-| `npm run db:migrate` | Run database migrations |
+| `npm run db:push` | Push schema directly to the database |
+| `npm run db:migrate` | Create/apply a local Prisma migration |
 | `npm run db:studio` | Open Prisma Studio |
+| `npm run worker:transcribe` | Run the BullMQ transcription worker |
+| `npm run worker:summarize` | Run the BullMQ summarization worker |
+| `npm run worker:zoom` | Run the Zoom import worker |
+
+---
+
+## Environment Variables
+
+| Variable | Purpose |
+|----------|---------|
+| `DATABASE_URL` | PostgreSQL connection string |
+| `NEXTAUTH_URL` | App origin used by Auth.js and reset links |
+| `NEXTAUTH_SECRET` | Auth/session signing secret |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google OAuth credentials |
+| `REDIS_URL` | BullMQ Redis connection |
+| `MINIO_ENDPOINT`, `MINIO_PORT`, `MINIO_USE_SSL` | S3-compatible storage endpoint |
+| `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BUCKET` | S3-compatible storage credentials and bucket |
+| `WHISPER_MODEL_PATH` | Local whisper.cpp model path |
+| `OLLAMA_BASE_URL`, `SUMMARIZE_MODEL` | Optional summarizer overrides |
+| `RESEND_API_KEY`, `EMAIL_FROM`, `ACCESS_REQUEST_EMAIL` | Optional email delivery settings |
+| `ZOOM_CLIENT_ID`, `ZOOM_CLIENT_SECRET`, `ZOOM_REDIRECT_URI` | Optional Zoom import integration |
 
 ---
 
 ## Roadmap
 
-- [x] **v1** — UI/UX foundation with all pages and mock data
-- [x] **v2** — Auth, MinIO upload, AI transcription pipeline
-- [ ] **v3** — Vector search, Slack integration, team analytics
+### Completed
 
----
+- Auth.js Google OAuth with approved-user gating
+- Email/password setup and reset flow
+- RBAC roles and admin access management
+- Direct uploads to S3-compatible storage
+- BullMQ transcription and summarization pipeline
+- Local `whisper.cpp` transcription
+- Ollama AI summaries, TLDRs, takeaways, and tags
+- Admin-only recording deletion
+- Zoom OAuth and cloud recording import pipeline
 
-## Contributing
+### Next
 
-This is currently an internal project. If you're interested in contributing, open an issue to start a discussion.
+- Production-hosted workers and queue observability
+- Vector search over transcripts using pgvector embeddings
+- Richer analytics backed by watch history
+- Slack notifications for new uploads and completed AI processing
+- More complete playlist and search backend behavior
 
 ---
 
@@ -228,6 +349,6 @@ MIT
 
 <div align="center">
 
-Built with care for teams who believe knowledge should be shared, not lost.
+Built for teams who believe recorded knowledge should be searchable, reusable, and alive.
 
 </div>

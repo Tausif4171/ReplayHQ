@@ -109,6 +109,11 @@ interface ApiRecording {
     completed: boolean;
     lastWatchedAt: string;
   } | null;
+  viewerBookmark?: {
+    id: string;
+    timestamp: number | null;
+    createdAt: string;
+  } | null;
   permissions?: {
     canDelete: boolean;
   };
@@ -308,6 +313,8 @@ export default function RecordingDetailPage({
   const [isMuted, setIsMuted] = useState(false);
   const [showDescription, setShowDescription] = useState(false);
   const [isBookmarked, setIsBookmarked] = useState(false);
+  const [isBookmarking, setIsBookmarking] = useState(false);
+  const [bookmarkError, setBookmarkError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -407,6 +414,10 @@ export default function RecordingDetailPage({
   useEffect(() => {
     currentTimeRef.current = currentTime;
   }, [currentTime]);
+
+  useEffect(() => {
+    setIsBookmarked(Boolean(recording?.viewerBookmark));
+  }, [recording?.viewerBookmark]);
 
   useEffect(() => {
     if (sessionStatus === "loading") {
@@ -756,6 +767,50 @@ export default function RecordingDetailPage({
       setIsDeleting(false);
     }
   }, [id, isDeleting, router]);
+
+  const handleToggleBookmark = useCallback(async () => {
+    if (isBookmarking) return;
+
+    const nextBookmarked = !isBookmarked;
+    setIsBookmarking(true);
+    setBookmarkError(null);
+    setIsBookmarked(nextBookmarked);
+
+    try {
+      const res = await fetch(`/api/recordings/${id}/bookmark`, {
+        method: nextBookmarked ? "POST" : "DELETE",
+      });
+
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(data?.error || "Could not update saved recording.");
+      }
+
+      setIsBookmarked(Boolean(data.bookmarked));
+      setRecording((current) =>
+        current
+          ? {
+              ...current,
+              viewerBookmark: data.bookmark ?? null,
+              _count: {
+                ...current._count,
+                bookmarks:
+                  typeof data.totalBookmarks === "number"
+                    ? data.totalBookmarks
+                    : current._count?.bookmarks,
+              },
+            }
+          : current
+      );
+    } catch (err) {
+      setIsBookmarked(!nextBookmarked);
+      setBookmarkError(
+        err instanceof Error ? err.message : "Could not update saved recording."
+      );
+    } finally {
+      setIsBookmarking(false);
+    }
+  }, [id, isBookmarked, isBookmarking]);
 
   const videoDuration = duration || recording?.duration || 0;
   const progressPercent = videoDuration > 0 ? (currentTime / videoDuration) * 100 : 0;
@@ -1206,116 +1261,134 @@ export default function RecordingDetailPage({
               </div>
 
               {/* Action buttons */}
-              <div className="flex items-center gap-1">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className={cn(
-                    "gap-1.5",
-                    isBookmarked && "text-primary"
-                  )}
-                  onClick={() => setIsBookmarked(!isBookmarked)}
-                >
-                  <Bookmark
+              <div className="flex flex-col items-start gap-1.5 sm:items-end">
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     className={cn(
-                      "h-4 w-4",
-                      isBookmarked && "fill-primary"
+                      "gap-1.5",
+                      isBookmarked && "text-primary"
                     )}
-                  />
-                  {isBookmarked ? "Saved" : "Save"}
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="gap-1.5"
-                  onClick={() => {
-                    navigator.clipboard.writeText(window.location.href);
-                    setCopied(true);
-                    setTimeout(() => setCopied(false), 2000);
-                  }}
-                >
-                  {copied ? (
-                    <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                  ) : (
-                    <Share2 className="h-4 w-4" />
-                  )}
-                  {copied ? "Copied!" : "Copy link"}
-                </Button>
-                {recording.permissions?.canDelete && (
-                  <Dialog
-                    open={deleteDialogOpen}
-                    onOpenChange={(open) => {
-                      if (isDeleting) return;
-                      setDeleteDialogOpen(open);
-                      if (!open) setDeleteError(null);
+                    disabled={isBookmarking}
+                    aria-pressed={isBookmarked}
+                    aria-label={
+                      isBookmarked
+                        ? "Remove from saved recordings"
+                        : "Save recording"
+                    }
+                    onClick={handleToggleBookmark}
+                  >
+                    {isBookmarking ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Bookmark
+                        className={cn(
+                          "h-4 w-4",
+                          isBookmarked && "fill-primary"
+                        )}
+                      />
+                    )}
+                    {isBookmarked ? "Saved" : "Save"}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={() => {
+                      navigator.clipboard.writeText(window.location.href);
+                      setCopied(true);
+                      setTimeout(() => setCopied(false), 2000);
                     }}
                   >
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
-                          aria-label="More actions"
-                        >
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-48">
-                        <DropdownMenuItem
-                          className="cursor-pointer gap-2 text-destructive focus:text-destructive"
-                          onSelect={(event) => {
-                            event.preventDefault();
-                            setDeleteDialogOpen(true);
-                          }}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                          Delete recording
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-
-                    <DialogContent className="sm:max-w-md">
-                      <DialogHeader>
-                        <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-destructive/10 text-destructive">
-                          <AlertTriangle className="h-5 w-5" />
-                        </div>
-                        <DialogTitle>Delete recording?</DialogTitle>
-                        <DialogDescription>
-                          This permanently removes the recording, transcript,
-                          summary, comments, history, and uploaded media files.
-                        </DialogDescription>
-                      </DialogHeader>
-
-                      {deleteError && (
-                        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                          {deleteError}
-                        </div>
-                      )}
-
-                      <DialogFooter>
-                        <Button
-                          variant="outline"
-                          onClick={() => setDeleteDialogOpen(false)}
-                          disabled={isDeleting}
-                        >
-                          Cancel
-                        </Button>
-                        <Button
-                          variant="destructive"
-                          onClick={handleDeleteRecording}
-                          disabled={isDeleting}
-                        >
-                          {isDeleting ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
+                    {copied ? (
+                      <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                    ) : (
+                      <Share2 className="h-4 w-4" />
+                    )}
+                    {copied ? "Copied!" : "Copy link"}
+                  </Button>
+                  {recording.permissions?.canDelete && (
+                    <Dialog
+                      open={deleteDialogOpen}
+                      onOpenChange={(open) => {
+                        if (isDeleting) return;
+                        setDeleteDialogOpen(open);
+                        if (!open) setDeleteError(null);
+                      }}
+                    >
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            aria-label="More actions"
+                          >
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-48">
+                          <DropdownMenuItem
+                            className="cursor-pointer gap-2 text-destructive focus:text-destructive"
+                            onSelect={(event) => {
+                              event.preventDefault();
+                              setDeleteDialogOpen(true);
+                            }}
+                          >
                             <Trash2 className="h-4 w-4" />
-                          )}
-                          Delete
-                        </Button>
-                      </DialogFooter>
-                    </DialogContent>
-                  </Dialog>
+                            Delete recording
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+
+                      <DialogContent className="sm:max-w-md">
+                        <DialogHeader>
+                          <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+                            <AlertTriangle className="h-5 w-5" />
+                          </div>
+                          <DialogTitle>Delete recording?</DialogTitle>
+                          <DialogDescription>
+                            This permanently removes the recording, transcript,
+                            summary, comments, history, and uploaded media files.
+                          </DialogDescription>
+                        </DialogHeader>
+
+                        {deleteError && (
+                          <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                            {deleteError}
+                          </div>
+                        )}
+
+                        <DialogFooter>
+                          <Button
+                            variant="outline"
+                            onClick={() => setDeleteDialogOpen(false)}
+                            disabled={isDeleting}
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            variant="destructive"
+                            onClick={handleDeleteRecording}
+                            disabled={isDeleting}
+                          >
+                            {isDeleting ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-4 w-4" />
+                            )}
+                            Delete
+                          </Button>
+                        </DialogFooter>
+                      </DialogContent>
+                    </Dialog>
+                  )}
+                </div>
+                {bookmarkError && (
+                  <p className="max-w-[260px] text-xs text-destructive sm:text-right">
+                    {bookmarkError}
+                  </p>
                 )}
               </div>
             </div>

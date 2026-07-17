@@ -11,8 +11,14 @@ export async function GET(request: NextRequest) {
   const seriesId = searchParams.get("series") || "";
   const tag = searchParams.get("tag") || "";
   const sort = searchParams.get("sort") || "newest";
+  const savedOnly = searchParams.get("saved") === "true";
 
   const where: any = {};
+
+  const session = savedOnly ? await auth() : null;
+  if (savedOnly && !session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   if (search) {
     where.OR = [
@@ -27,6 +33,15 @@ export async function GET(request: NextRequest) {
 
   if (tag) {
     where.tags = { some: { name: tag } };
+  }
+
+  if (savedOnly) {
+    where.bookmarks = {
+      some: {
+        userId: session!.user.id,
+        timestamp: null,
+      },
+    };
   }
 
   const orderBy: any = sort === "oldest"

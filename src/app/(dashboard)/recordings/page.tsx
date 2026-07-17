@@ -11,6 +11,7 @@ import {
   Film,
   X,
   Loader2,
+  Bookmark,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -92,6 +93,7 @@ export default function RecordingsPage() {
   const [selectedSeries, setSelectedSeries] = useState("All Series");
   const [sortBy, setSortBy] = useState<SortOption>("newest");
   const [selectedTag, setSelectedTag] = useState("All");
+  const [showSavedOnly, setShowSavedOnly] = useState(false);
   const [seriesDropdownOpen, setSeriesDropdownOpen] = useState(false);
   const [sortDropdownOpen, setSortDropdownOpen] = useState(false);
 
@@ -106,7 +108,11 @@ export default function RecordingsPage() {
 
     async function fetchRecordings() {
       try {
-        const res = await fetch("/api/recordings?limit=100");
+        setLoadingRecordings(true);
+        const params = new URLSearchParams({ limit: "100" });
+        if (showSavedOnly) params.set("saved", "true");
+
+        const res = await fetch(`/api/recordings?${params.toString()}`);
         if (!res.ok) throw new Error("Failed to fetch recordings");
         const data = await res.json();
         if (!cancelled) {
@@ -126,7 +132,7 @@ export default function RecordingsPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [showSavedOnly]);
 
   // Fetch series from API
   useEffect(() => {
@@ -204,12 +210,14 @@ export default function RecordingsPage() {
   const hasActiveFilters =
     searchQuery.trim() !== "" ||
     selectedSeries !== "All Series" ||
-    selectedTag !== "All";
+    selectedTag !== "All" ||
+    showSavedOnly;
 
   const clearAllFilters = () => {
     setSearchQuery("");
     setSelectedSeries("All Series");
     setSelectedTag("All");
+    setShowSavedOnly(false);
     setSortBy("newest");
   };
 
@@ -472,6 +480,23 @@ export default function RecordingsPage() {
             )}
           </div>
 
+          <Button
+            variant={showSavedOnly ? "default" : "outline"}
+            size="sm"
+            onClick={() => setShowSavedOnly((value) => !value)}
+            className={cn(
+              "h-9 gap-1.5 px-3 text-sm",
+              showSavedOnly
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "border-border bg-secondary/50 text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <Bookmark
+              className={cn("h-3.5 w-3.5", showSavedOnly && "fill-current")}
+            />
+            Saved
+          </Button>
+
           {/* Clear filters */}
           {hasActiveFilters && (
             <Button
@@ -541,11 +566,12 @@ export default function RecordingsPage() {
             <Film className="h-8 w-8 text-muted-foreground" />
           </div>
           <h3 className="mt-4 text-base font-semibold text-foreground">
-            No recordings found
+            {showSavedOnly ? "No saved recordings yet" : "No recordings found"}
           </h3>
           <p className="mt-1.5 max-w-sm text-sm text-muted-foreground">
-            No recordings match your current filters. Try adjusting your search
-            query, series, or tag selections.
+            {showSavedOnly
+              ? "Save recordings you want to revisit, and they will appear here."
+              : "No recordings match your current filters. Try adjusting your search query, series, or tag selections."}
           </p>
           <Button
             variant="outline"

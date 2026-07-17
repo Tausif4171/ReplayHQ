@@ -52,6 +52,11 @@ export async function GET(
         select: { progress: true, completed: true, lastWatchedAt: true },
         take: 1,
       },
+      bookmarks: {
+        where: { userId: currentUserId, timestamp: null },
+        select: { id: true, timestamp: true, createdAt: true },
+        take: 1,
+      },
       _count: { select: { watchHistory: true, bookmarks: true } },
     },
   });
@@ -60,11 +65,12 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const { watchHistory, ...recordingData } = recording;
+  const { watchHistory, bookmarks, ...recordingData } = recording;
 
   return NextResponse.json({
     ...recordingData,
     viewerWatchHistory: watchHistory[0] ?? null,
+    viewerBookmark: bookmarks[0] ?? null,
     permissions: {
       canDelete: currentUser?.role === "ADMIN",
     },

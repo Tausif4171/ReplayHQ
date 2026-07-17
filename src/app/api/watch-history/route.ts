@@ -20,6 +20,7 @@ export async function GET() {
     where: {
       userId: session.user.id,
       completed: false,
+      progress: { gt: 0 },
     },
     include: {
       recording: {

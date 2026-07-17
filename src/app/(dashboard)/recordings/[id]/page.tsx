@@ -329,6 +329,7 @@ export default function RecordingDetailPage({
       progress,
       completed,
       force = false,
+      keepalive,
     }: {
       progress: number;
       completed?: boolean;
@@ -581,6 +582,7 @@ export default function RecordingDetailPage({
       const rect = e.currentTarget.getBoundingClientRect();
       const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
       const newTime = Math.floor(pct * dur);
+      currentTimeRef.current = newTime;
       setCurrentTime(newTime);
       if (videoRef.current) videoRef.current.currentTime = newTime;
     },
@@ -589,6 +591,7 @@ export default function RecordingDetailPage({
 
   // Jump to timestamp
   const jumpTo = useCallback((seconds: number) => {
+    currentTimeRef.current = seconds;
     setCurrentTime(seconds);
     if (videoRef.current) {
       videoRef.current.currentTime = seconds;
@@ -850,6 +853,7 @@ export default function RecordingDetailPage({
                   <button
                     onClick={() => {
                       const newTime = Math.min(currentTime + 10, videoDuration);
+                      currentTimeRef.current = newTime;
                       setCurrentTime(newTime);
                       if (videoRef.current) videoRef.current.currentTime = newTime;
                     }}

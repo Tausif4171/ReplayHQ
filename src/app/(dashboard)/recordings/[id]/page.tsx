@@ -320,6 +320,7 @@ export default function RecordingDetailPage({
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const hasTrackedViewRef = useRef(false);
+  const hasUserWatchActivityRef = useRef(false);
   const hasAppliedResumeRef = useRef(false);
   const appliedResumeAtRef = useRef(0);
   const programmaticSeekTargetRef = useRef<number | null>(null);
@@ -433,6 +434,7 @@ export default function RecordingDetailPage({
 
   useEffect(() => {
     hasTrackedViewRef.current = false;
+    hasUserWatchActivityRef.current = false;
     hasAppliedResumeRef.current = false;
     appliedResumeAtRef.current = 0;
     programmaticSeekTargetRef.current = null;
@@ -543,6 +545,8 @@ export default function RecordingDetailPage({
 
   const saveCurrentProgress = useCallback(
     ({ keepalive = false }: { keepalive?: boolean } = {}) => {
+      if (!hasUserWatchActivityRef.current) return;
+
       const progress = getCurrentVideoProgress();
       if (!shouldSaveProgress(progress)) return;
       persistProgressLocally(progress);
@@ -575,6 +579,8 @@ export default function RecordingDetailPage({
     const nextTime = Math.floor(video.currentTime);
     currentTimeRef.current = nextTime;
     setCurrentTime(nextTime);
+
+    if (!hasUserWatchActivityRef.current) return;
 
     if (
       shouldSaveProgress(nextTime) &&
@@ -661,6 +667,7 @@ export default function RecordingDetailPage({
   }, [applyResumePosition]);
 
   const handleVideoPlay = useCallback(() => {
+    hasUserWatchActivityRef.current = true;
     setIsPlaying(true);
   }, []);
 
@@ -685,6 +692,7 @@ export default function RecordingDetailPage({
     }
 
     programmaticSeekTargetRef.current = null;
+    hasUserWatchActivityRef.current = true;
 
     if (!video.ended) {
       saveCurrentProgress();
@@ -833,6 +841,7 @@ export default function RecordingDetailPage({
       const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
       const newTime = Math.floor(pct * dur);
       programmaticSeekTargetRef.current = null;
+      hasUserWatchActivityRef.current = true;
       currentTimeRef.current = newTime;
       setCurrentTime(newTime);
       if (videoRef.current) videoRef.current.currentTime = newTime;
@@ -849,6 +858,7 @@ export default function RecordingDetailPage({
   const jumpTo = useCallback(
     (seconds: number) => {
       programmaticSeekTargetRef.current = null;
+      hasUserWatchActivityRef.current = true;
       currentTimeRef.current = seconds;
       setCurrentTime(seconds);
       if (videoRef.current) {
@@ -1119,6 +1129,8 @@ export default function RecordingDetailPage({
                   <button
                     onClick={() => {
                       const newTime = Math.min(currentTime + 10, videoDuration);
+                      programmaticSeekTargetRef.current = null;
+                      hasUserWatchActivityRef.current = true;
                       currentTimeRef.current = newTime;
                       setCurrentTime(newTime);
                       if (videoRef.current) videoRef.current.currentTime = newTime;

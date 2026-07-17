@@ -23,9 +23,10 @@ export async function GET(
   const { id } = await params;
 
   const session = await auth();
+  const currentUserId = session?.user?.id ?? "";
   const currentUser = session?.user?.id
     ? await prisma.user.findUnique({
-        where: { id: session.user.id },
+        where: { id: currentUserId },
         select: { role: true },
       })
     : null;
@@ -46,6 +47,11 @@ export async function GET(
         orderBy: { index: "asc" },
         select: { startTime: true, text: true },
       },
+      watchHistory: {
+        where: { userId: currentUserId },
+        select: { progress: true, completed: true, lastWatchedAt: true },
+        take: 1,
+      },
       _count: { select: { watchHistory: true, bookmarks: true } },
     },
   });
@@ -54,8 +60,11 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
+  const { watchHistory, ...recordingData } = recording;
+
   return NextResponse.json({
-    ...recording,
+    ...recordingData,
+    viewerWatchHistory: watchHistory[0] ?? null,
     permissions: {
       canDelete: currentUser?.role === "ADMIN",
     },

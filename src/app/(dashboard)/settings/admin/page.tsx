@@ -1,6 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type FormEvent,
+} from "react";
 import type { ComponentType } from "react";
 import { useSession } from "next-auth/react";
 import {
@@ -35,6 +41,15 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 
 type Role = "ADMIN" | "UPLOADER" | "VIEWER";
 type AccessRequestStatus = "PENDING" | "APPROVED" | "REJECTED";
@@ -95,6 +110,14 @@ interface UserCounts {
   viewers: number;
 }
 
+interface InviteFormState {
+  email: string;
+  name: string;
+  role: Role;
+  note: string;
+  sendSetupEmail: boolean;
+}
+
 const ROLES: Role[] = ["VIEWER", "UPLOADER", "ADMIN"];
 const FILTERS: { label: string; value: RequestFilter }[] = [
   { label: "All", value: "ALL" },
@@ -102,6 +125,18 @@ const FILTERS: { label: string; value: RequestFilter }[] = [
   { label: "Approved", value: "APPROVED" },
   { label: "Rejected", value: "REJECTED" },
 ];
+const DEFAULT_INVITE_FORM: InviteFormState = {
+  email: "",
+  name: "",
+  role: "VIEWER",
+  note: "",
+  sendSetupEmail: true,
+};
+const ROLE_DESCRIPTIONS: Record<Role, string> = {
+  VIEWER: "Can watch recordings and comment.",
+  UPLOADER: "Can upload recordings and manage their uploads.",
+  ADMIN: "Can manage team access and admin actions.",
+};
 
 function formatRole(role: Role) {
   return role.charAt(0) + role.slice(1).toLowerCase();
@@ -167,6 +202,10 @@ export default function AdminSettingsPage() {
   >({});
   const [requestNotes, setRequestNotes] = useState<Record<string, string>>({});
   const [userRoleDrafts, setUserRoleDrafts] = useState<Record<string, Role>>({});
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteForm, setInviteForm] =
+    useState<InviteFormState>(DEFAULT_INVITE_FORM);
+  const [inviteError, setInviteError] = useState<string | null>(null);
 
   const isAdmin = session?.user?.role === "ADMIN";
 
@@ -250,6 +289,60 @@ export default function AdminSettingsPage() {
       requestCounts.pending + requestCounts.approved + requestCounts.rejected,
     [requestCounts]
   );
+
+  function resetInviteForm() {
+    setInviteForm(DEFAULT_INVITE_FORM);
+    setInviteError(null);
+  }
+
+  async function inviteMember(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusyAction("invite-member");
+    setError(null);
+    setNotice(null);
+    setInviteError(null);
+
+    try {
+      const response = await fetch("/api/admin/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: inviteForm.email,
+          name: inviteForm.name || undefined,
+          role: inviteForm.role,
+          note: inviteForm.note || undefined,
+          sendSetupEmail: inviteForm.sendSetupEmail,
+        }),
+      });
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(data?.error || "Could not invite member.");
+      }
+
+      const emailStatus =
+        data.setupEmail?.delivered === false
+          ? data.setupEmail.reason === "skipped"
+            ? " Setup email was skipped."
+            : " Email delivery is not configured, so setup instructions were logged on the server."
+          : "";
+
+      setNotice(
+        `Invited ${data.user.email} as ${formatRole(data.user.role)}.${emailStatus}`
+      );
+      setInviteOpen(false);
+      resetInviteForm();
+      await loadData();
+    } catch (inviteMemberError) {
+      setInviteError(
+        inviteMemberError instanceof Error
+          ? inviteMemberError.message
+          : "Could not invite member."
+      );
+    } finally {
+      setBusyAction(null);
+    }
+  }
 
   async function reviewRequest(
     request: AccessRequest,
@@ -407,15 +500,213 @@ export default function AdminSettingsPage() {
             email sign-in.
           </p>
         </div>
-        <Button variant="outline" onClick={loadData} disabled={loading}>
-          {loading ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Clock3 className="h-4 w-4" />
-          )}
-          Refresh
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => setInviteOpen(true)}>
+            <UserPlus className="h-4 w-4" />
+            Invite member
+          </Button>
+          <Button variant="outline" onClick={loadData} disabled={loading}>
+            {loading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Clock3 className="h-4 w-4" />
+            )}
+            Refresh
+          </Button>
+        </div>
       </div>
+
+      <Dialog
+        open={inviteOpen}
+        onOpenChange={(open) => {
+          if (busyAction === "invite-member") return;
+
+          setInviteOpen(open);
+
+          if (!open) {
+            resetInviteForm();
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <form onSubmit={inviteMember} className="space-y-5">
+            <DialogHeader>
+              <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <UserPlus className="h-5 w-5" />
+              </div>
+              <DialogTitle>Invite member</DialogTitle>
+              <DialogDescription>
+                Add a teammate, choose their role, and send password setup
+                instructions.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <label
+                  htmlFor="invite-name"
+                  className="text-sm font-medium text-foreground"
+                >
+                  Name
+                </label>
+                <Input
+                  id="invite-name"
+                  value={inviteForm.name}
+                  onChange={(event) =>
+                    setInviteForm((current) => ({
+                      ...current,
+                      name: event.target.value,
+                    }))
+                  }
+                  placeholder="Optional"
+                  autoComplete="name"
+                  disabled={busyAction === "invite-member"}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label
+                  htmlFor="invite-email"
+                  className="text-sm font-medium text-foreground"
+                >
+                  Email
+                </label>
+                <Input
+                  id="invite-email"
+                  type="email"
+                  value={inviteForm.email}
+                  onChange={(event) =>
+                    setInviteForm((current) => ({
+                      ...current,
+                      email: event.target.value,
+                    }))
+                  }
+                  placeholder="name@company.com"
+                  autoComplete="email"
+                  required
+                  disabled={busyAction === "invite-member"}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">
+                Role
+              </label>
+              <Select
+                value={inviteForm.role}
+                onValueChange={(value) =>
+                  setInviteForm((current) => ({
+                    ...current,
+                    role: value as Role,
+                  }))
+                }
+                disabled={busyAction === "invite-member"}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Choose role" />
+                </SelectTrigger>
+                <SelectContent>
+                  {ROLES.map((role) => (
+                    <SelectItem key={role} value={role}>
+                      {formatRole(role)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {ROLE_DESCRIPTIONS[inviteForm.role]}
+              </p>
+              {inviteForm.role === "ADMIN" && (
+                <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+                  Admins can manage team access.
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <label
+                htmlFor="invite-note"
+                className="text-sm font-medium text-foreground"
+              >
+                Admin note
+              </label>
+              <textarea
+                id="invite-note"
+                value={inviteForm.note}
+                onChange={(event) =>
+                  setInviteForm((current) => ({
+                    ...current,
+                    note: event.target.value,
+                  }))
+                }
+                placeholder="Optional reason or context"
+                rows={3}
+                disabled={busyAction === "invite-member"}
+                className="w-full resize-none rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              />
+            </div>
+
+            <label className="flex items-start gap-3 rounded-lg border border-border bg-secondary/30 p-3 text-sm">
+              <input
+                type="checkbox"
+                checked={inviteForm.sendSetupEmail}
+                onChange={(event) =>
+                  setInviteForm((current) => ({
+                    ...current,
+                    sendSetupEmail: event.target.checked,
+                  }))
+                }
+                disabled={busyAction === "invite-member"}
+                className="mt-0.5 h-4 w-4 rounded border-border bg-background text-primary"
+              />
+              <span>
+                <span className="block font-medium text-foreground">
+                  Send setup email now
+                </span>
+                <span className="text-muted-foreground">
+                  The member will receive instructions to create their ReplayHQ
+                  password.
+                </span>
+              </span>
+            </label>
+
+            {inviteError && (
+              <div className="flex gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{inviteError}</span>
+              </div>
+            )}
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setInviteOpen(false);
+                  resetInviteForm();
+                }}
+                disabled={busyAction === "invite-member"}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={
+                  busyAction === "invite-member" || !inviteForm.email.trim()
+                }
+              >
+                {busyAction === "invite-member" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <UserPlus className="h-4 w-4" />
+                )}
+                Invite member
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {(error || notice) && (
         <div

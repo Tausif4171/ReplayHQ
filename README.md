@@ -25,17 +25,34 @@ ReplayHQ is an internal YouTube-style platform for team knowledge. It gives appr
 
 ---
 
-<!--
-Screenshot checklist before publishing the portfolio README:
-- public/screenshots/dashboard.png
-- public/screenshots/upload.png
-- public/screenshots/recording-transcript.png
-- public/screenshots/recording-summary.png
-- public/screenshots/team-access.png
+## Product Preview
 
-Recommended layout: one hero screenshot near the top, then a compact
-two-column gallery under a "Product Preview" section.
--->
+<p align="center">
+  <img src="public/screenshots/recording-transcript.png" alt="ReplayHQ recording detail page with video playback and searchable transcript" width="100%">
+</p>
+
+<p align="center">
+  <strong>Recording intelligence workspace</strong><br>
+  Watch sessions, search timestamped transcripts, jump to key moments, and review AI-generated context from one focused page.
+</p>
+
+| Home Dashboard | Upload Workflow |
+|---|---|
+| <img src="public/screenshots/dashboard.png" alt="ReplayHQ home dashboard with stats and continue watching cards"> | <img src="public/screenshots/upload.png" alt="ReplayHQ upload wizard for publishing a recording"> |
+| Continue watching, activity stats, and recently added knowledge in one dashboard. | Guided upload flow with metadata, thumbnail review, and publishing state. |
+
+| AI Summary | Team Access |
+|---|---|
+| <img src="public/screenshots/recording-summary.png" alt="ReplayHQ AI summary tab with TLDR, takeaways, and tags"> | <img src="public/screenshots/team-access.png" alt="ReplayHQ admin team access page for requests and member roles"> |
+| TLDR, key takeaways, suggested tags, and topic structure generated from the transcript. | Admin-controlled invites, access requests, roles, setup links, and member lifecycle management. |
+
+| Recording Detail | Transcript Search |
+|---|---|
+| <img src="public/screenshots/recording.png" alt="ReplayHQ recording detail page with video player and related recordings"> | <img src="public/screenshots/recording-transcript.png" alt="ReplayHQ transcript view with searchable timestamped segments"> |
+| Video-first playback experience with save, copy link, comments, and related recordings. | Searchable timestamped transcript segments built for fast review and knowledge reuse. |
+
+---
+
 
 ## Features
 

@@ -90,6 +90,14 @@ export default function LoginPage() {
       setOauthError(
         "Google did not return an email address for this account. Try another account or request access."
       );
+    } else if (error === "google_email_unverified") {
+      setOauthError(
+        "Google has not verified this email address. Use a verified Google account or sign in with email."
+      );
+    } else if (error === "OAuthAccountNotLinked") {
+      setOauthError(
+        "This approved email is not linked to Google yet. Try signing in again or use email sign-in."
+      );
     } else if (error) {
       setOauthError(
         "Google sign-in could not be completed. Try again or contact an admin."

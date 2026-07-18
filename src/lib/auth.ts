@@ -12,6 +12,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     Google({
       clientId: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+      allowDangerousEmailAccountLinking: true,
     }),
   ],
   pages: {
@@ -33,6 +34,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
       if (!email) {
         return "/login?error=google_email_missing";
+      }
+
+      if ((profile as { email_verified?: boolean }).email_verified !== true) {
+        return "/login?error=google_email_unverified";
       }
 
       const approvedUser = await prisma.user.findFirst({

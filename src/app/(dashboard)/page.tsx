@@ -318,7 +318,7 @@ export default function DashboardPage() {
         {/* Greeting */}
         <motion.div variants={fadeUp} custom={0}>
           <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
-            Welcome back, {userName}
+            Welcome, {userName}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Here&apos;s what&apos;s happening in your knowledge base

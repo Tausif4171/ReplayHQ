@@ -272,10 +272,10 @@ export default function LoginPage() {
       <div className="flex w-full flex-1 items-center justify-center bg-background px-6 py-12 lg:w-1/2 lg:py-0">
         <div className="w-full max-w-sm">
           <h1 className="text-2xl font-bold tracking-tight text-foreground">
-            Welcome back
+            Sign in to ReplayHQ
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Sign in to your account
+            Use Google or your ReplayHQ password.
           </p>
 
           <Button

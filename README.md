@@ -28,20 +28,20 @@ ReplayHQ is an internal YouTube-style platform for team knowledge. It gives appr
 ## Product Preview
 
 <p align="center">
-  <img src="public/screenshots/recording.png" alt="ReplayHQ recording detail page with video playback, metadata, and related recordings" width="100%">
+  <img src="public/screenshots/dashboard.png" alt="ReplayHQ home dashboard with stats, continue watching, and recording cards" width="100%">
 </p>
 
 <p align="center">
-  <strong>Internal YouTube for team knowledge</strong><br>
-  A focused recording experience with playback, metadata, save/share actions, comments, related sessions, transcripts, and AI-generated context.
+  <strong>Team knowledge command center</strong><br>
+  A dashboard for finding recordings, resuming learning, tracking activity, and moving from raw video to searchable team knowledge.
 </p>
 
 The screenshots below follow the core product journey: discover team knowledge, publish recordings, extract insight, and manage access safely.
 
-| Discover Knowledge | Publish Recordings |
+| Browse The Library | Publish Recordings |
 |---|---|
-| <img src="public/screenshots/dashboard.png" alt="ReplayHQ home dashboard with stats and continue watching cards"> | <img src="public/screenshots/upload.png" alt="ReplayHQ upload wizard for publishing a recording"> |
-| Home dashboard with continue watching, activity stats, and recently added recordings. | Guided upload workflow with metadata, thumbnail review, and publishing state. |
+| <img src="public/screenshots/recording.png" alt="ReplayHQ recordings library in list view with filters, tags, and metadata"> | <img src="public/screenshots/upload.png" alt="ReplayHQ upload wizard for publishing a recording"> |
+| Filter and scan the team recording library with tags, series, views, and metadata. | Guided upload workflow with metadata, thumbnail review, and publishing state. |
 
 | Search The Transcript | Review The Summary |
 |---|---|

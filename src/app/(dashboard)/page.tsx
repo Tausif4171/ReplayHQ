@@ -245,6 +245,7 @@ export default function DashboardPage() {
   const [recentLoading, setRecentLoading] = useState(true);
   const [popularLoading, setPopularLoading] = useState(true);
   const [continueLoading, setContinueLoading] = useState(true);
+  const [hasSeenHome, setHasSeenHome] = useState(false);
 
   // Fetch dashboard stats
   useEffect(() => {
@@ -302,7 +303,18 @@ export default function DashboardPage() {
       .finally(() => setContinueLoading(false));
   }, []);
 
+  useEffect(() => {
+    if (!session?.user?.id) return;
+
+    const storageKey = `replayhq:home-seen:${session.user.id}`;
+    const hasVisitedBefore = window.localStorage.getItem(storageKey) === "true";
+
+    setHasSeenHome(hasVisitedBefore);
+    window.localStorage.setItem(storageKey, "true");
+  }, [session?.user?.id]);
+
   const userName = session?.user?.name?.split(" ")[0] || "there";
+  const greeting = hasSeenHome ? "Welcome back" : "Welcome";
 
   return (
     <div className="mx-auto max-w-7xl space-y-10 px-4 py-8 sm:px-6 lg:px-8">
@@ -318,7 +330,7 @@ export default function DashboardPage() {
         {/* Greeting */}
         <motion.div variants={fadeUp} custom={0}>
           <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
-            Welcome, {userName}
+            {greeting}, {userName}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Here&apos;s what&apos;s happening in your knowledge base

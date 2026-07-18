@@ -32,13 +32,28 @@ export async function POST(request: NextRequest) {
       usedAt: null,
       expiresAt: { gt: new Date() },
     },
-    select: { id: true, userId: true },
+    select: {
+      id: true,
+      userId: true,
+      user: {
+        select: {
+          suspendedAt: true,
+        },
+      },
+    },
   });
 
   if (!resetToken) {
     return NextResponse.json(
       { error: "This reset link is invalid or expired." },
       { status: 400 }
+    );
+  }
+
+  if (resetToken.user.suspendedAt) {
+    return NextResponse.json(
+      { error: "This account no longer has ReplayHQ access." },
+      { status: 403 }
     );
   }
 

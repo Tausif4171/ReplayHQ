@@ -11,11 +11,15 @@ import type { ComponentType } from "react";
 import { useSession } from "next-auth/react";
 import {
   AlertCircle,
+  Ban,
   CheckCircle2,
   Clock3,
   KeyRound,
   Loader2,
+  MoreHorizontal,
+  RotateCcw,
   ShieldCheck,
+  Trash2,
   UserCheck,
   UserCog,
   UserPlus,
@@ -50,6 +54,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 type Role = "ADMIN" | "UPLOADER" | "VIEWER";
 type AccessRequestStatus = "PENDING" | "APPROVED" | "REJECTED";
@@ -59,6 +70,7 @@ interface ExistingUser {
   id: string;
   role: Role;
   hasPassword: boolean;
+  isSuspended: boolean;
 }
 
 interface AccessRequest {
@@ -96,11 +108,22 @@ interface ManagedUser {
   role: Role;
   passwordSetAt: string | null;
   hasPassword: boolean;
+  suspendedAt: string | null;
+  suspendedById: string | null;
+  suspensionReason: string | null;
+  isSuspended: boolean;
+  canRemove: boolean;
   createdAt: string;
   updatedAt: string;
   _count: {
+    accounts: number;
+    sessions: number;
     uploads: number;
     recordings: number;
+    comments: number;
+    bookmarks: number;
+    watchHistory: number;
+    playlists: number;
   };
 }
 
@@ -108,6 +131,7 @@ interface UserCounts {
   admins: number;
   uploaders: number;
   viewers: number;
+  suspended: number;
 }
 
 interface InviteFormState {
@@ -116,6 +140,13 @@ interface InviteFormState {
   role: Role;
   note: string;
   sendSetupEmail: boolean;
+}
+
+type MemberAccessAction = "suspend" | "reactivate" | "remove";
+
+interface MemberActionState {
+  action: MemberAccessAction;
+  user: ManagedUser;
 }
 
 const ROLES: Role[] = ["VIEWER", "UPLOADER", "ADMIN"];
@@ -192,6 +223,7 @@ export default function AdminSettingsPage() {
     admins: 0,
     uploaders: 0,
     viewers: 0,
+    suspended: 0,
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -206,6 +238,13 @@ export default function AdminSettingsPage() {
   const [inviteForm, setInviteForm] =
     useState<InviteFormState>(DEFAULT_INVITE_FORM);
   const [inviteError, setInviteError] = useState<string | null>(null);
+  const [memberAction, setMemberAction] = useState<MemberActionState | null>(
+    null
+  );
+  const [memberActionReason, setMemberActionReason] = useState("");
+  const [memberActionError, setMemberActionError] = useState<string | null>(
+    null
+  );
 
   const isAdmin = session?.user?.role === "ADMIN";
 
@@ -293,6 +332,68 @@ export default function AdminSettingsPage() {
   function resetInviteForm() {
     setInviteForm(DEFAULT_INVITE_FORM);
     setInviteError(null);
+  }
+
+  function resetMemberAction() {
+    setMemberAction(null);
+    setMemberActionReason("");
+    setMemberActionError(null);
+  }
+
+  function openMemberAction(user: ManagedUser, action: MemberAccessAction) {
+    setMemberAction({ user, action });
+    setMemberActionReason("");
+    setMemberActionError(null);
+    setError(null);
+    setNotice(null);
+  }
+
+  async function submitMemberAction(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!memberAction) return;
+
+    const { action, user } = memberAction;
+    const actionId = `${action}-${user.id}`;
+    setBusyAction(actionId);
+    setMemberActionError(null);
+
+    try {
+      const response =
+        action === "remove"
+          ? await fetch(`/api/admin/users/${user.id}`, { method: "DELETE" })
+          : await fetch(`/api/admin/users/${user.id}/access`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                action,
+                reason: memberActionReason || undefined,
+              }),
+            });
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(data?.error || "Could not update member access.");
+      }
+
+      if (action === "suspend") {
+        setNotice(`Suspended access for ${user.email}.`);
+      } else if (action === "reactivate") {
+        setNotice(`Reactivated access for ${user.email}.`);
+      } else {
+        setNotice(`Removed ${user.email}.`);
+      }
+
+      resetMemberAction();
+      await loadData();
+    } catch (accessError) {
+      setMemberActionError(
+        accessError instanceof Error
+          ? accessError.message
+          : "Could not update member access."
+      );
+    } finally {
+      setBusyAction(null);
+    }
   }
 
   async function inviteMember(event: FormEvent<HTMLFormElement>) {
@@ -708,6 +809,132 @@ export default function AdminSettingsPage() {
         </DialogContent>
       </Dialog>
 
+      <Dialog
+        open={Boolean(memberAction)}
+        onOpenChange={(open) => {
+          if (
+            memberAction &&
+            busyAction === `${memberAction.action}-${memberAction.user.id}`
+          ) {
+            return;
+          }
+
+          if (!open) {
+            resetMemberAction();
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          {memberAction && (
+            <form onSubmit={submitMemberAction} className="space-y-5">
+              <DialogHeader>
+                <div
+                  className={cn(
+                    "mb-2 flex h-10 w-10 items-center justify-center rounded-full",
+                    memberAction.action === "reactivate"
+                      ? "bg-emerald-500/10 text-emerald-300"
+                      : "bg-destructive/10 text-destructive"
+                  )}
+                >
+                  {memberAction.action === "reactivate" ? (
+                    <RotateCcw className="h-5 w-5" />
+                  ) : memberAction.action === "remove" ? (
+                    <Trash2 className="h-5 w-5" />
+                  ) : (
+                    <Ban className="h-5 w-5" />
+                  )}
+                </div>
+                <DialogTitle>
+                  {memberAction.action === "suspend"
+                    ? "Suspend access"
+                    : memberAction.action === "reactivate"
+                      ? "Reactivate access"
+                      : "Remove member"}
+                </DialogTitle>
+                <DialogDescription>
+                  {memberAction.action === "suspend"
+                    ? "This prevents the member from signing in and clears active sessions. Their recordings, comments, and history stay visible."
+                    : memberAction.action === "reactivate"
+                      ? "This restores sign-in access for the member. Their role stays the same."
+                      : "This removes an unused member record. Members with sign-in history or content should be suspended instead."}
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="rounded-lg border border-border bg-secondary/30 px-3 py-2 text-sm">
+                <p className="font-medium text-foreground">
+                  {memberAction.user.name || "Unnamed user"}
+                </p>
+                <p className="text-muted-foreground">{memberAction.user.email}</p>
+              </div>
+
+              {memberAction.action === "suspend" && (
+                <div className="space-y-2">
+                  <label
+                    htmlFor="suspension-reason"
+                    className="text-sm font-medium text-foreground"
+                  >
+                    Reason
+                  </label>
+                  <textarea
+                    id="suspension-reason"
+                    value={memberActionReason}
+                    onChange={(event) =>
+                      setMemberActionReason(event.target.value)
+                    }
+                    placeholder="Optional note for admins"
+                    rows={3}
+                    disabled={busyAction === `suspend-${memberAction.user.id}`}
+                    className="w-full resize-none rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                  />
+                </div>
+              )}
+
+              {memberActionError && (
+                <div className="flex gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>{memberActionError}</span>
+                </div>
+              )}
+
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={resetMemberAction}
+                  disabled={busyAction === `${memberAction.action}-${memberAction.user.id}`}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  variant={
+                    memberAction.action === "reactivate"
+                      ? "default"
+                      : "destructive"
+                  }
+                  disabled={busyAction === `${memberAction.action}-${memberAction.user.id}`}
+                >
+                  {busyAction === `${memberAction.action}-${memberAction.user.id}` ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : memberAction.action === "reactivate" ? (
+                    <RotateCcw className="h-4 w-4" />
+                  ) : memberAction.action === "remove" ? (
+                    <Trash2 className="h-4 w-4" />
+                  ) : (
+                    <Ban className="h-4 w-4" />
+                  )}
+                  {memberAction.action === "suspend"
+                    ? "Suspend access"
+                    : memberAction.action === "reactivate"
+                      ? "Reactivate"
+                      : "Remove member"}
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {(error || notice) && (
         <div
           className={cn(
@@ -819,10 +1046,11 @@ export default function AdminSettingsPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="grid gap-3 sm:grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <RoleCount label="Admins" value={userCounts.admins} />
                 <RoleCount label="Uploaders" value={userCounts.uploaders} />
                 <RoleCount label="Viewers" value={userCounts.viewers} />
+                <RoleCount label="Suspended" value={userCounts.suspended} />
               </div>
 
               {loading ? (
@@ -840,6 +1068,7 @@ export default function AdminSettingsPage() {
                     user={user}
                     role={userRoleDrafts[user.id] || user.role}
                     busyAction={busyAction}
+                    currentUserId={session?.user?.id || null}
                     onRoleChange={(role) =>
                       setUserRoleDrafts((current) => ({
                         ...current,
@@ -848,6 +1077,9 @@ export default function AdminSettingsPage() {
                     }
                     onSaveRole={() => updateUserRole(user)}
                     onResendSetup={() => resendSetup(user)}
+                    onSuspend={() => openMemberAction(user, "suspend")}
+                    onReactivate={() => openMemberAction(user, "reactivate")}
+                    onRemove={() => openMemberAction(user, "remove")}
                   />
                 ))
               )}
@@ -1057,24 +1289,43 @@ function UserRow({
   user,
   role,
   busyAction,
+  currentUserId,
   onRoleChange,
   onSaveRole,
   onResendSetup,
+  onSuspend,
+  onReactivate,
+  onRemove,
 }: {
   user: ManagedUser;
   role: Role;
   busyAction: string | null;
+  currentUserId: string | null;
   onRoleChange: (role: Role) => void;
   onSaveRole: () => void;
   onResendSetup: () => void;
+  onSuspend: () => void;
+  onReactivate: () => void;
+  onRemove: () => void;
 }) {
   const savingRole = busyAction === `role-${user.id}`;
   const sendingSetup = busyAction === `setup-${user.id}`;
+  const suspending = busyAction === `suspend-${user.id}`;
+  const reactivating = busyAction === `reactivate-${user.id}`;
+  const removing = busyAction === `remove-${user.id}`;
   const roleChanged = role !== user.role;
   const disabled = Boolean(busyAction);
+  const isCurrentUser = currentUserId === user.id;
 
   return (
-    <div className="rounded-lg border border-border bg-secondary/20 p-4">
+    <div
+      className={cn(
+        "rounded-lg border p-4",
+        user.isSuspended
+          ? "border-amber-500/30 bg-amber-500/5"
+          : "border-border bg-secondary/20"
+      )}
+    >
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div className="flex min-w-0 items-center gap-3">
           <Avatar className="h-10 w-10">
@@ -1089,20 +1340,38 @@ function UserRow({
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2 xl:w-[560px] xl:grid-cols-[160px_1fr_150px] xl:items-center">
-          <Badge className={cn("w-fit border", getRoleStyles(user.role))}>
-            {formatRole(user.role)}
-          </Badge>
+          <div className="flex flex-wrap gap-2">
+            <Badge className={cn("w-fit border", getRoleStyles(user.role))}>
+              {formatRole(user.role)}
+            </Badge>
+            {user.isSuspended && (
+              <Badge className="w-fit border border-amber-500/30 bg-amber-500/10 text-amber-300">
+                Suspended
+              </Badge>
+            )}
+          </div>
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-            <span>{user.hasPassword ? "Password set" : "Needs password"}</span>
+            <span>
+              {user.isSuspended
+                ? `Suspended ${formatDate(user.suspendedAt)}`
+                : user.hasPassword
+                  ? "Password set"
+                  : "Needs password"}
+            </span>
             <span>{user._count.uploads} uploads</span>
             <span>Joined {formatDate(user.createdAt)}</span>
+            {user.suspensionReason && (
+              <span className="basis-full truncate">
+                Reason: {user.suspensionReason}
+              </span>
+            )}
           </div>
           <div className="flex gap-2 sm:col-span-2 xl:col-span-1">
             <Button
               variant="outline"
               size="sm"
               onClick={onResendSetup}
-              disabled={disabled}
+              disabled={disabled || user.isSuspended}
               className="flex-1"
             >
               {sendingSetup ? (
@@ -1143,6 +1412,50 @@ function UserRow({
             )}
             Save role
           </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="icon" disabled={disabled}>
+                {suspending || reactivating || removing ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <MoreHorizontal className="h-4 w-4" />
+                )}
+                <span className="sr-only">Member actions</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem
+                onClick={onResendSetup}
+                disabled={disabled || user.isSuspended}
+              >
+                <KeyRound className="h-4 w-4" />
+                Resend setup
+              </DropdownMenuItem>
+              {user.isSuspended ? (
+                <DropdownMenuItem onClick={onReactivate} disabled={disabled}>
+                  <RotateCcw className="h-4 w-4" />
+                  Reactivate access
+                </DropdownMenuItem>
+              ) : (
+                <DropdownMenuItem
+                  onClick={onSuspend}
+                  disabled={disabled || isCurrentUser}
+                >
+                  <Ban className="h-4 w-4" />
+                  Suspend access
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={onRemove}
+                disabled={disabled || isCurrentUser || !user.canRemove}
+                className="text-destructive focus:text-destructive"
+              >
+                <Trash2 className="h-4 w-4" />
+                Remove member
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
     </div>

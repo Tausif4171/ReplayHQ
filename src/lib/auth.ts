@@ -42,11 +42,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
       const approvedUser = await prisma.user.findFirst({
         where: { email: { equals: email, mode: "insensitive" } },
-        select: { id: true },
+        select: { id: true, suspendedAt: true },
       });
 
       if (!approvedUser) {
         return `/login?error=access_required&email=${encodeURIComponent(email)}`;
+      }
+
+      if (approvedUser.suspendedAt) {
+        return "/login?error=account_suspended";
       }
 
       return true;

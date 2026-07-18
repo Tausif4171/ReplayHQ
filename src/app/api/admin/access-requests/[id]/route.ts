@@ -77,12 +77,15 @@ export async function PATCH(
       const user = existingUser
         ? await tx.user.update({
             where: { id: existingUser.id },
-            data: {
-              name: existingUser.name || accessRequest.name || undefined,
-              role,
-            },
-            select: { id: true, email: true },
-          })
+          data: {
+            name: existingUser.name || accessRequest.name || undefined,
+            role,
+            suspendedAt: null,
+            suspendedById: null,
+            suspensionReason: null,
+          },
+          select: { id: true, email: true },
+        })
         : await tx.user.create({
             data: {
               email: accessRequest.email,

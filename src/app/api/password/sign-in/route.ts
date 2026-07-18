@@ -30,8 +30,15 @@ export async function POST(request: NextRequest) {
   const email = normalizeEmail(parsed.data.email);
   const user = await prisma.user.findFirst({
     where: { email: { equals: email, mode: "insensitive" } },
-    select: { id: true, passwordHash: true },
+    select: { id: true, passwordHash: true, suspendedAt: true },
   });
+
+  if (user?.suspendedAt) {
+    return NextResponse.json(
+      { error: "This account no longer has ReplayHQ access." },
+      { status: 403 }
+    );
+  }
 
   if (!user?.passwordHash) {
     return NextResponse.json(

@@ -98,6 +98,10 @@ export default function LoginPage() {
       setOauthError(
         "This approved email is not linked to Google yet. Try signing in again or use email sign-in."
       );
+    } else if (error === "account_suspended") {
+      setOauthError(
+        "This account no longer has ReplayHQ access. Contact an admin if this seems wrong."
+      );
     } else if (error) {
       setOauthError(
         "Google sign-in could not be completed. Try again or contact an admin."

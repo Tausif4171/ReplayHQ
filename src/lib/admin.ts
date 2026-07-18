@@ -11,10 +11,10 @@ export async function requireAdminUser() {
 
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
-    select: { id: true, name: true, email: true, role: true },
+    select: { id: true, name: true, email: true, role: true, suspendedAt: true },
   });
 
-  if (!user) {
+  if (!user || user.suspendedAt) {
     throw new ApiError(401, "Unauthorized");
   }
 

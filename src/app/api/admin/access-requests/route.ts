@@ -38,8 +38,8 @@ export async function GET(request: NextRequest) {
         prisma.accessRequest.count({ where: { status: "PENDING" } }),
         prisma.accessRequest.count({ where: { status: "APPROVED" } }),
         prisma.accessRequest.count({ where: { status: "REJECTED" } }),
-        prisma.user.count(),
-        prisma.user.count({ where: { role: "ADMIN" } }),
+        prisma.user.count({ where: { suspendedAt: null } }),
+        prisma.user.count({ where: { role: "ADMIN", suspendedAt: null } }),
       ]);
 
     const emails = requests.map((item) => item.email);
@@ -51,6 +51,7 @@ export async function GET(request: NextRequest) {
             email: true,
             role: true,
             passwordSetAt: true,
+            suspendedAt: true,
           },
         })
       : [];
@@ -66,6 +67,7 @@ export async function GET(request: NextRequest) {
                 id: user.id,
                 role: user.role,
                 hasPassword: Boolean(user.passwordSetAt),
+                isSuspended: Boolean(user.suspendedAt),
               }
             : null,
         };

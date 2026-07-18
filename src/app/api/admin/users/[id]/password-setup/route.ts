@@ -21,11 +21,18 @@ export async function POST(
     const { id } = await params;
     const user = await prisma.user.findUnique({
       where: { id },
-      select: { id: true, email: true },
+      select: { id: true, email: true, suspendedAt: true },
     });
 
     if (!user) {
       throw new ApiError(404, "User not found.");
+    }
+
+    if (user.suspendedAt) {
+      throw new ApiError(
+        400,
+        "Reactivate this member before sending setup instructions."
+      );
     }
 
     const resetUrl = await createPasswordResetUrl({

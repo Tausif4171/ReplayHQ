@@ -9,6 +9,7 @@ import {
   createPasswordResetUrl,
   sendPasswordInstructions,
 } from "@/lib/password-reset";
+import { managedUserSelect, serializeManagedUser } from "@/lib/admin-users";
 
 const InviteUserSchema = z.object({
   email: z.string().trim().email(),
@@ -41,22 +42,7 @@ export async function POST(request: NextRequest) {
     const [existingUser, existingAccessRequest] = await prisma.$transaction([
       prisma.user.findFirst({
         where: { email: { equals: email, mode: "insensitive" } },
-        select: {
-          id: true,
-          name: true,
-          email: true,
-          image: true,
-          role: true,
-          passwordSetAt: true,
-          createdAt: true,
-          updatedAt: true,
-          _count: {
-            select: {
-              uploads: true,
-              recordings: true,
-            },
-          },
-        },
+        select: managedUserSelect,
       }),
       prisma.accessRequest.findFirst({
         where: { email: { equals: email, mode: "insensitive" } },
@@ -70,10 +56,7 @@ export async function POST(request: NextRequest) {
           error:
             "This email is already a member. Use the Members tab to update role or resend setup.",
           existing: true,
-          user: {
-            ...existingUser,
-            hasPassword: Boolean(existingUser.passwordSetAt),
-          },
+          user: serializeManagedUser(existingUser),
         },
         { status: 409 }
       );
@@ -86,22 +69,7 @@ export async function POST(request: NextRequest) {
           name,
           role,
         },
-        select: {
-          id: true,
-          name: true,
-          email: true,
-          image: true,
-          role: true,
-          passwordSetAt: true,
-          createdAt: true,
-          updatedAt: true,
-          _count: {
-            select: {
-              uploads: true,
-              recordings: true,
-            },
-          },
-        },
+        select: managedUserSelect,
       });
 
       const requestData = {
@@ -155,10 +123,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         existing: false,
-        user: {
-          ...result.user,
-          hasPassword: Boolean(result.user.passwordSetAt),
-        },
+        user: serializeManagedUser(result.user),
         request: result.accessRequest,
         setupEmail,
       },
@@ -173,42 +138,30 @@ export async function GET() {
   try {
     await requireAdminUser();
 
-    const [users, adminCount, uploaderCount, viewerCount] =
+    const [users, adminCount, uploaderCount, viewerCount, suspendedCount] =
       await prisma.$transaction([
         prisma.user.findMany({
-          orderBy: [{ role: "asc" }, { createdAt: "desc" }],
+          orderBy: [
+            { suspendedAt: "asc" },
+            { role: "asc" },
+            { createdAt: "desc" },
+          ],
           take: 100,
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            image: true,
-            role: true,
-            passwordSetAt: true,
-            createdAt: true,
-            updatedAt: true,
-            _count: {
-              select: {
-                uploads: true,
-                recordings: true,
-              },
-            },
-          },
+          select: managedUserSelect,
         }),
-        prisma.user.count({ where: { role: "ADMIN" } }),
-        prisma.user.count({ where: { role: "UPLOADER" } }),
-        prisma.user.count({ where: { role: "VIEWER" } }),
+        prisma.user.count({ where: { role: "ADMIN", suspendedAt: null } }),
+        prisma.user.count({ where: { role: "UPLOADER", suspendedAt: null } }),
+        prisma.user.count({ where: { role: "VIEWER", suspendedAt: null } }),
+        prisma.user.count({ where: { suspendedAt: { not: null } } }),
       ]);
 
     return NextResponse.json({
-      users: users.map((user) => ({
-        ...user,
-        hasPassword: Boolean(user.passwordSetAt),
-      })),
+      users: users.map(serializeManagedUser),
       counts: {
         admins: adminCount,
         uploaders: uploaderCount,
         viewers: viewerCount,
+        suspended: suspendedCount,
       },
     });
   } catch (error) {

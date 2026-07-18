@@ -28,28 +28,34 @@ ReplayHQ is an internal YouTube-style platform for team knowledge. It gives appr
 ## Product Preview
 
 <p align="center">
-  <img src="public/screenshots/recording-transcript.png" alt="ReplayHQ recording detail page with video playback and searchable transcript" width="100%">
+  <img src="public/screenshots/recording.png" alt="ReplayHQ recording detail page with video playback, metadata, and related recordings" width="100%">
 </p>
 
 <p align="center">
-  <strong>Recording intelligence workspace</strong><br>
-  Watch sessions, search timestamped transcripts, jump to key moments, and review AI-generated context from one focused page.
+  <strong>Internal YouTube for team knowledge</strong><br>
+  A focused recording experience with playback, metadata, save/share actions, comments, related sessions, transcripts, and AI-generated context.
 </p>
 
-| Home Dashboard | Upload Workflow |
+The screenshots below follow the core product journey: discover team knowledge, publish recordings, extract insight, and manage access safely.
+
+| Discover Knowledge | Publish Recordings |
 |---|---|
 | <img src="public/screenshots/dashboard.png" alt="ReplayHQ home dashboard with stats and continue watching cards"> | <img src="public/screenshots/upload.png" alt="ReplayHQ upload wizard for publishing a recording"> |
-| Continue watching, activity stats, and recently added knowledge in one dashboard. | Guided upload flow with metadata, thumbnail review, and publishing state. |
+| Home dashboard with continue watching, activity stats, and recently added recordings. | Guided upload workflow with metadata, thumbnail review, and publishing state. |
 
-| AI Summary | Team Access |
+| Search The Transcript | Review The Summary |
 |---|---|
-| <img src="public/screenshots/recording-summary.png" alt="ReplayHQ AI summary tab with TLDR, takeaways, and tags"> | <img src="public/screenshots/team-access.png" alt="ReplayHQ admin team access page for requests and member roles"> |
-| TLDR, key takeaways, suggested tags, and topic structure generated from the transcript. | Admin-controlled invites, access requests, roles, setup links, and member lifecycle management. |
+| <img src="public/screenshots/recording-transcript.png" alt="ReplayHQ transcript view with searchable timestamped segments"> | <img src="public/screenshots/recording-summary.png" alt="ReplayHQ AI summary tab with TLDR, takeaways, and tags"> |
+| Searchable timestamped transcript segments for jumping directly to important moments. | TLDR, key takeaways, suggested tags, and topic structure generated from the transcript. |
 
-| Recording Detail | Transcript Search |
-|---|---|
-| <img src="public/screenshots/recording.png" alt="ReplayHQ recording detail page with video player and related recordings"> | <img src="public/screenshots/recording-transcript.png" alt="ReplayHQ transcript view with searchable timestamped segments"> |
-| Video-first playback experience with save, copy link, comments, and related recordings. | Searchable timestamped transcript segments built for fast review and knowledge reuse. |
+<p align="center">
+  <img src="public/screenshots/team-access.png" alt="ReplayHQ admin team access page for invites, access requests, roles, and member lifecycle management" width="100%">
+</p>
+
+<p align="center">
+  <strong>Admin-ready access control</strong><br>
+  Invite members, approve requests, assign roles, resend setup links, suspend access, and keep team permissions auditable.
+</p>
 
 ---
 

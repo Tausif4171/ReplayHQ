@@ -469,8 +469,8 @@ function SearchPageContent() {
                 "w-full rounded-2xl border border-border/60 bg-card/80 py-4 pl-12 pr-12 text-lg",
                 "placeholder:text-muted-foreground/60",
                 "shadow-lg shadow-black/10 backdrop-blur-sm",
-                "transition-all duration-200",
-                "focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/40",
+                "transition-colors duration-150",
+                "focus:border-border focus:outline-none focus:ring-0",
                 "hover:border-border"
               )}
             />

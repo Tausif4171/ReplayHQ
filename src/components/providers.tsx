@@ -1,33 +1,53 @@
 "use client";
 
+import type { Session } from "next-auth";
 import { SessionProvider, useSession } from "next-auth/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import {
   applyThemePreference,
   getStoredThemePreference,
+  getStoredUserThemePreference,
   isThemePreference,
   storeThemePreference,
 } from "@/lib/theme";
 
 function ThemeSync() {
-  const { status } = useSession();
+  const { data: session, status } = useSession();
+  const userId = session?.user?.id;
 
   useEffect(() => {
-    function applyStoredTheme() {
-      applyThemePreference(getStoredThemePreference());
+    function reapplyThemeForSystemChange() {
+      const userTheme = getStoredUserThemePreference(userId);
+      const theme =
+        status === "authenticated" && userTheme
+          ? userTheme
+          : getStoredThemePreference();
+
+      if (theme === "system") {
+        applyThemePreference(theme);
+      }
     }
 
-    applyStoredTheme();
-
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-    mediaQuery.addEventListener("change", applyStoredTheme);
+    mediaQuery.addEventListener("change", reapplyThemeForSystemChange);
 
-    return () => mediaQuery.removeEventListener("change", applyStoredTheme);
-  }, []);
+    return () =>
+      mediaQuery.removeEventListener("change", reapplyThemeForSystemChange);
+  }, [status, userId]);
 
   useEffect(() => {
-    if (status !== "authenticated") return;
+    if (status === "loading") return;
+
+    if (status === "unauthenticated") {
+      applyThemePreference(getStoredThemePreference());
+      return;
+    }
+
+    const cachedUserTheme = getStoredUserThemePreference(userId);
+    if (cachedUserTheme) {
+      applyThemePreference(cachedUserTheme);
+    }
 
     let cancelled = false;
 
@@ -40,7 +60,7 @@ function ThemeSync() {
         const theme = data.preferences?.theme;
 
         if (!cancelled && isThemePreference(theme)) {
-          storeThemePreference(theme);
+          storeThemePreference(theme, userId);
           applyThemePreference(theme);
         }
       } catch {
@@ -53,12 +73,18 @@ function ThemeSync() {
     return () => {
       cancelled = true;
     };
-  }, [status]);
+  }, [status, userId]);
 
   return null;
 }
 
-export function Providers({ children }: { children: React.ReactNode }) {
+export function Providers({
+  children,
+  session,
+}: {
+  children: React.ReactNode;
+  session: Session | null;
+}) {
   const [queryClient] = useState(
     () =>
       new QueryClient({
@@ -72,7 +98,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <SessionProvider>
+    <SessionProvider session={session}>
       <QueryClientProvider client={queryClient}>
         <ThemeSync />
         {children}

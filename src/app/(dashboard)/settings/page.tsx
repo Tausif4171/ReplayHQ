@@ -145,7 +145,7 @@ function SettingsContent() {
 
       setSettings(data);
       setProfileName(data.user.name || "");
-      storeThemePreference(data.preferences.theme);
+      storeThemePreference(data.preferences.theme, data.user.id);
       applyThemePreference(data.preferences.theme);
     } catch (error) {
       setSettingsMessage({
@@ -343,7 +343,7 @@ function SettingsContent() {
     };
 
     setSettings(optimisticSettings);
-    storeThemePreference(theme);
+    storeThemePreference(theme, settings.user.id);
     applyThemePreference(theme);
     setSavingPreference("theme");
     setSettingsMessage(null);
@@ -356,7 +356,7 @@ function SettingsContent() {
       });
     } catch (error) {
       setSettings(previousSettings);
-      storeThemePreference(previousTheme);
+      storeThemePreference(previousTheme, previousSettings.user.id);
       applyThemePreference(previousTheme);
       setSettingsMessage({
         type: "error",

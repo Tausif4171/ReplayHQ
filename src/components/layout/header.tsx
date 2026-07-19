@@ -213,8 +213,8 @@ export function Header({ onMenuToggle }: HeaderProps) {
             aria-label="Search recordings"
             className={cn(
               "h-9 w-full rounded-lg border border-border bg-secondary/50 pl-9 pr-4 text-sm text-foreground placeholder:text-muted-foreground/70",
-              "transition-all duration-200",
-              "focus:border-primary/50 focus:bg-secondary focus:outline-none focus:ring-1 focus:ring-primary/30"
+              "transition-colors duration-150",
+              "focus:border-border focus:bg-secondary/80 focus:outline-none focus:ring-0"
             )}
           />
           <kbd className="pointer-events-none absolute right-3 top-1/2 hidden -translate-y-1/2 select-none items-center gap-0.5 rounded border border-border bg-background px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground sm:flex">

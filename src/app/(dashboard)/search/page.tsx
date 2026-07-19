@@ -5,7 +5,6 @@ import {
   useState,
   useEffect,
   useRef,
-  useMemo,
   useCallback,
 } from "react";
 import Link from "next/link";
@@ -18,7 +17,6 @@ import {
   Clock,
   Play,
   Eye,
-  Sparkles,
   TrendingUp,
   FolderOpen,
   FileText,
@@ -28,7 +26,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 
 // ---------------------------------------------------------------------------
@@ -40,6 +37,10 @@ interface SearchRecording {
   title: string;
   description: string;
   duration: number;
+  thumbnailUrl: string | null;
+  transcript: string;
+  summary: string;
+  tldr: string;
   presenter: { name: string };
   series: { id: string; name: string } | null;
   tags: string[];
@@ -77,57 +78,6 @@ const RECENT_SEARCHES = [
   "CI/CD pipeline",
 ];
 
-// Mock transcript snippets keyed by recording id for transcript-match results.
-const TRANSCRIPT_SNIPPETS: Record<
-  string,
-  { text: string; timestamp: string }
-> = {
-  r1: {
-    text: "...we chose erasure coding over simple replication because the storage overhead drops from 3x to roughly 1.5x while maintaining the same durability guarantees across availability zones...",
-    timestamp: "12:34",
-  },
-  r2: {
-    text: "...the kubernetes control plane migration required careful coordination to ensure zero-downtime, we rolled nodes in batches of three...",
-    timestamp: "08:21",
-  },
-  r3: {
-    text: "...mutual TLS between services is enforced at the mesh layer, ensuring encrypted communication without application-level changes for security...",
-    timestamp: "22:15",
-  },
-  r4: {
-    text: "...server components eliminate the client bundle for these routes which dramatically improves performance on low-end devices...",
-    timestamp: "15:47",
-  },
-  r5: {
-    text: "...adding a composite index on (tenant_id, created_at) improved the query performance from 2.3 seconds down to 12 milliseconds...",
-    timestamp: "31:02",
-  },
-  r7: {
-    text: "...we instrument every service with OpenTelemetry for distributed tracing and monitoring across the entire request lifecycle...",
-    timestamp: "19:44",
-  },
-  r9: {
-    text: "...the CI/CD pipeline runs security scans, linting, unit tests, and integration tests in parallel to keep build times under eight minutes...",
-    timestamp: "14:08",
-  },
-  r12: {
-    text: "...our Redis cluster handles over 200k requests per second with sub-millisecond latency for improved performance at scale...",
-    timestamp: "26:33",
-  },
-  r14: {
-    text: "...the API gateway handles authentication, rate limiting, and request transformation before forwarding to downstream services with strict security policies...",
-    timestamp: "10:55",
-  },
-  r16: {
-    text: "...during the incident we identified the root cause within 15 minutes thanks to our monitoring and alerting setup...",
-    timestamp: "38:12",
-  },
-  r18: {
-    text: "...feature flags let us decouple deployments from releases, giving product full control over the architecture of progressive rollouts...",
-    timestamp: "17:29",
-  },
-};
-
 const SERIES_GRADIENT_COLORS = [
   "from-indigo-500 to-purple-600",
   "from-emerald-500 to-teal-600",
@@ -146,6 +96,10 @@ function mapApiRecording(apiRec: any): SearchRecording {
     title: apiRec.title,
     description: apiRec.description || "",
     duration: apiRec.duration || 0,
+    thumbnailUrl: apiRec.thumbnailUrl || null,
+    transcript: apiRec.transcript || "",
+    summary: apiRec.summary || "",
+    tldr: apiRec.tldr || "",
     presenter: {
       name: apiRec.presenter?.name || "Unknown",
     },
@@ -190,8 +144,10 @@ function highlightText(text: string, term: string) {
   const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const regex = new RegExp(`(${escaped})`, "gi");
   const parts = text.split(regex);
+  const normalizedTerm = term.toLowerCase();
+
   return parts.map((part, i) =>
-    regex.test(part) ? (
+    part.toLowerCase() === normalizedTerm ? (
       <span
         key={i}
         className="rounded bg-yellow-500/20 text-yellow-200 px-0.5"
@@ -204,11 +160,55 @@ function highlightText(text: string, term: string) {
   );
 }
 
+function getMatchSnippet(text: string, term: string, radius = 110) {
+  const trimmedTerm = term.trim();
+  if (!text || !trimmedTerm) return null;
+
+  const lowerText = text.toLowerCase();
+  const lowerTerm = trimmedTerm.toLowerCase();
+  const matchIndex = lowerText.indexOf(lowerTerm);
+  if (matchIndex === -1) return null;
+
+  const start = Math.max(0, matchIndex - radius);
+  const end = Math.min(text.length, matchIndex + trimmedTerm.length + radius);
+  const snippet = text.slice(start, end).trim();
+
+  return `${start > 0 ? "... " : ""}${snippet}${end < text.length ? " ..." : ""}`;
+}
+
+function getMatchLabels(recording: SearchRecording, query: string) {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+
+  const labels: string[] = [];
+  if (recording.title.toLowerCase().includes(q)) labels.push("Title");
+  if (recording.description.toLowerCase().includes(q)) labels.push("Description");
+  if (recording.tags.some((tag) => tag.toLowerCase().includes(q))) labels.push("Tag");
+  if (recording.series?.name.toLowerCase().includes(q)) labels.push("Series");
+  if (recording.transcript.toLowerCase().includes(q)) labels.push("Transcript");
+  if (
+    recording.summary.toLowerCase().includes(q) ||
+    recording.tldr.toLowerCase().includes(q)
+  ) {
+    labels.push("Summary");
+  }
+
+  return labels.slice(0, 4);
+}
+
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
 
-function GradientThumbnail({ title }: { title: string }) {
+function ResultThumbnail({
+  title,
+  thumbnailUrl,
+  duration,
+}: {
+  title: string;
+  thumbnailUrl: string | null;
+  duration: number;
+}) {
   // Deterministic gradient based on title
   const gradients = [
     "from-violet-600 to-indigo-700",
@@ -222,15 +222,29 @@ function GradientThumbnail({ title }: { title: string }) {
   return (
     <div
       className={cn(
-        "relative aspect-video w-40 shrink-0 rounded-lg bg-gradient-to-br overflow-hidden",
-        gradients[idx]
+        "relative aspect-video w-full shrink-0 overflow-hidden rounded-lg bg-gradient-to-br sm:w-52",
+        !thumbnailUrl && gradients[idx]
       )}
     >
-      <div className="absolute inset-0 flex items-center justify-center">
-        <div className="rounded-full bg-white/10 p-2 backdrop-blur-sm">
-          <Play className="h-4 w-4 text-white fill-white" />
+      {thumbnailUrl ? (
+        <img
+          src={`/api/media?key=${encodeURIComponent(thumbnailUrl)}`}
+          alt=""
+          className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+        />
+      ) : (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="rounded-full bg-white/10 p-2 backdrop-blur-sm">
+            <Play className="h-4 w-4 fill-white text-white" />
+          </div>
         </div>
-      </div>
+      )}
+
+      {duration > 0 && (
+        <span className="absolute bottom-2 right-2 rounded bg-black/75 px-1.5 py-0.5 text-xs font-medium text-white">
+          {formatDuration(duration)}
+        </span>
+      )}
     </div>
   );
 }
@@ -238,21 +252,24 @@ function GradientThumbnail({ title }: { title: string }) {
 interface ResultCardProps {
   recording: SearchRecording;
   query: string;
-  showTranscript?: boolean;
 }
 
-function ResultCard({ recording, query, showTranscript }: ResultCardProps) {
-  const transcript = TRANSCRIPT_SNIPPETS[recording.id];
-  const hasTranscriptMatch =
-    showTranscript !== false &&
-    transcript &&
-    transcript.text.toLowerCase().includes(query.toLowerCase());
+function ResultCard({ recording, query }: ResultCardProps) {
+  const transcriptSnippet = getMatchSnippet(recording.transcript, query);
+  const summarySnippet = !transcriptSnippet
+    ? getMatchSnippet(recording.summary || recording.tldr, query)
+    : null;
+  const matchLabels = getMatchLabels(recording, query);
 
   return (
     <Link href={`/recordings/${recording.id}`} className="block group">
-      <div className="flex gap-4 rounded-xl border border-border/50 bg-card/50 p-4 transition-all hover:border-border hover:bg-card hover:shadow-lg hover:shadow-primary/5">
+      <div className="flex flex-col gap-4 rounded-xl border border-border/50 bg-card/50 p-4 transition-all hover:border-border hover:bg-card hover:shadow-lg hover:shadow-primary/5 sm:flex-row">
         {/* Thumbnail */}
-        <GradientThumbnail title={recording.title} />
+        <ResultThumbnail
+          title={recording.title}
+          thumbnailUrl={recording.thumbnailUrl}
+          duration={recording.duration}
+        />
 
         {/* Content */}
         <div className="flex min-w-0 flex-1 flex-col gap-2">
@@ -261,10 +278,26 @@ function ResultCard({ recording, query, showTranscript }: ResultCardProps) {
             {highlightText(recording.title, query)}
           </h3>
 
+          {matchLabels.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {matchLabels.map((label) => (
+                <Badge
+                  key={label}
+                  variant="secondary"
+                  className="h-5 rounded-md px-1.5 text-[10px] font-medium"
+                >
+                  {label} match
+                </Badge>
+              ))}
+            </div>
+          )}
+
           {/* Description */}
-          <p className="text-sm text-muted-foreground line-clamp-2 leading-relaxed">
-            {highlightText(recording.description, query)}
-          </p>
+          {recording.description && (
+            <p className="text-sm text-muted-foreground line-clamp-2 leading-relaxed">
+              {highlightText(recording.description, query)}
+            </p>
+          )}
 
           {/* Meta row */}
           <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
@@ -287,11 +320,6 @@ function ResultCard({ recording, query, showTranscript }: ResultCardProps) {
             )}
 
             <span className="flex items-center gap-1">
-              <Clock className="h-3 w-3" />
-              {formatDuration(recording.duration)}
-            </span>
-
-            <span className="flex items-center gap-1">
               <Eye className="h-3 w-3" />
               {recording.views}
             </span>
@@ -299,21 +327,17 @@ function ResultCard({ recording, query, showTranscript }: ResultCardProps) {
             <span>{formatRelativeDate(recording.createdAt)}</span>
           </div>
 
-          {/* Transcript match */}
-          {hasTranscriptMatch && (
+          {(transcriptSnippet || summarySnippet) && (
             <div className="mt-1 flex items-start gap-2 rounded-lg bg-muted/50 px-3 py-2">
               <Badge
                 variant="outline"
-                className="shrink-0 gap-1 text-[10px] border-purple-500/30 text-purple-400"
+                className="shrink-0 gap-1 text-[10px] border-primary/30 text-primary"
               >
-                <Sparkles className="h-3 w-3" />
-                Transcript match
+                <FileText className="h-3 w-3" />
+                {transcriptSnippet ? "Transcript" : "Summary"}
               </Badge>
               <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2">
-                <span className="font-mono text-[10px] text-muted-foreground/60 mr-1.5">
-                  [{transcript.timestamp}]
-                </span>
-                {highlightText(transcript.text, query)}
+                {highlightText(transcriptSnippet || summarySnippet || "", query)}
               </p>
             </div>
           )}
@@ -337,6 +361,7 @@ function SearchPageContent() {
   const [results, setResults] = useState<SearchRecording[]>([]);
   const [loading, setLoading] = useState(false);
   const [series, setSeries] = useState<SearchSeries[]>([]);
+  const showPageSearchInput = !urlQuery.trim();
 
   // Auto-focus on mount
   useEffect(() => {
@@ -413,15 +438,6 @@ function SearchPageContent() {
     };
   }, [debouncedQuery]);
 
-  // Separate transcript-only matches for the Transcripts tab
-  const transcriptResults = useMemo(() => {
-    if (!debouncedQuery.trim()) return [];
-    const q = debouncedQuery.toLowerCase();
-    return results.filter((r) =>
-      TRANSCRIPT_SNIPPETS[r.id]?.text?.toLowerCase().includes(q)
-    );
-  }, [debouncedQuery, results]);
-
   const handleTopicClick = useCallback((topic: string) => {
     setQuery(topic);
     inputRef.current?.focus();
@@ -439,37 +455,39 @@ function SearchPageContent() {
       {/* ----------------------------------------------------------------- */}
       {/* Search input */}
       {/* ----------------------------------------------------------------- */}
-      <div className="flex flex-col items-center gap-2 pt-4">
-        <div className="relative w-full max-w-2xl">
-          <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
-          <input
-            ref={inputRef}
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search recordings, transcripts, topics..."
-            className={cn(
-              "w-full rounded-2xl border border-border/60 bg-card/80 py-4 pl-12 pr-12 text-lg",
-              "placeholder:text-muted-foreground/60",
-              "shadow-lg shadow-black/10 backdrop-blur-sm",
-              "transition-all duration-200",
-              "focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/40",
-              "hover:border-border"
+      {showPageSearchInput && (
+        <div className="flex flex-col items-center gap-2 pt-4">
+          <div className="relative w-full max-w-2xl">
+            <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
+            <input
+              ref={inputRef}
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search recordings, transcripts, topics..."
+              className={cn(
+                "w-full rounded-2xl border border-border/60 bg-card/80 py-4 pl-12 pr-12 text-lg",
+                "placeholder:text-muted-foreground/60",
+                "shadow-lg shadow-black/10 backdrop-blur-sm",
+                "transition-all duration-200",
+                "focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/40",
+                "hover:border-border"
+              )}
+            />
+            {query && (
+              <button
+                onClick={() => {
+                  setQuery("");
+                  inputRef.current?.focus();
+                }}
+                className="absolute right-4 top-1/2 -translate-y-1/2 rounded-full p-1 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
             )}
-          />
-          {query && (
-            <button
-              onClick={() => {
-                setQuery("");
-                inputRef.current?.focus();
-              }}
-              className="absolute right-4 top-1/2 -translate-y-1/2 rounded-full p-1 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* ----------------------------------------------------------------- */}
       {/* Discovery state (no query) */}
@@ -594,79 +612,15 @@ function SearchPageContent() {
             </span>
           </p>
 
-          <Tabs defaultValue="all">
-            <TabsList>
-              <TabsTrigger value="all" className="gap-1.5">
-                All
-                <span className="ml-1 rounded-full bg-muted-foreground/20 px-1.5 py-0.5 text-[10px]">
-                  {results.length}
-                </span>
-              </TabsTrigger>
-              <TabsTrigger value="recordings" className="gap-1.5">
-                <Play className="h-3 w-3" />
-                Recordings
-              </TabsTrigger>
-              <TabsTrigger value="transcripts" className="gap-1.5">
-                <FileText className="h-3 w-3" />
-                Transcripts
-                {transcriptResults.length > 0 && (
-                  <span className="ml-1 rounded-full bg-purple-500/20 text-purple-400 px-1.5 py-0.5 text-[10px]">
-                    {transcriptResults.length}
-                  </span>
-                )}
-              </TabsTrigger>
-            </TabsList>
-
-            {/* All tab */}
-            <TabsContent value="all" className="mt-4">
-              <div className="flex flex-col gap-3">
-                {results.map((recording) => (
-                  <ResultCard
-                    key={recording.id}
-                    recording={recording}
-                    query={debouncedQuery}
-                  />
-                ))}
-              </div>
-            </TabsContent>
-
-            {/* Recordings tab */}
-            <TabsContent value="recordings" className="mt-4">
-              <div className="flex flex-col gap-3">
-                {results.map((recording) => (
-                  <ResultCard
-                    key={recording.id}
-                    recording={recording}
-                    query={debouncedQuery}
-                    showTranscript={false}
-                  />
-                ))}
-              </div>
-            </TabsContent>
-
-            {/* Transcripts tab */}
-            <TabsContent value="transcripts" className="mt-4">
-              {transcriptResults.length > 0 ? (
-                <div className="flex flex-col gap-3">
-                  {transcriptResults.map((recording) => (
-                    <ResultCard
-                      key={recording.id}
-                      recording={recording}
-                      query={debouncedQuery}
-                      showTranscript={true}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-16 text-center">
-                  <FileText className="h-10 w-10 text-muted-foreground/30 mb-3" />
-                  <p className="text-sm text-muted-foreground">
-                    No transcript matches found for this query.
-                  </p>
-                </div>
-              )}
-            </TabsContent>
-          </Tabs>
+          <div className="flex flex-col gap-3">
+            {results.map((recording) => (
+              <ResultCard
+                key={recording.id}
+                recording={recording}
+                query={debouncedQuery}
+              />
+            ))}
+          </div>
         </div>
       )}
 

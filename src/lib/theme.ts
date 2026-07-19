@@ -1,5 +1,7 @@
 export const THEME_STORAGE_KEY = "replayhq-theme";
 export const THEME_COOKIE_NAME = "replayhq-theme";
+export const DARK_THEME_BACKGROUND = "hsl(224 71% 4%)";
+export const LIGHT_THEME_BACKGROUND = "hsl(0 0% 100%)";
 
 export const THEMES = ["dark", "light", "system"] as const;
 
@@ -35,13 +37,14 @@ export function storeThemePreference(
 ) {
   if (typeof window === "undefined") return;
 
-  window.localStorage.setItem(THEME_STORAGE_KEY, theme);
-
   if (userId) {
     window.localStorage.setItem(getThemeStorageKey(userId), theme);
+    window.localStorage.removeItem(THEME_STORAGE_KEY);
+    document.cookie = `${THEME_COOKIE_NAME}=; path=/; max-age=0; SameSite=Lax`;
+    return;
   }
 
-  document.cookie = `${THEME_COOKIE_NAME}=${theme}; path=/; max-age=31536000; SameSite=Lax`;
+  window.localStorage.setItem(THEME_STORAGE_KEY, theme);
 }
 
 export function applyThemePreference(theme: ThemePreference) {
@@ -53,4 +56,7 @@ export function applyThemePreference(theme: ThemePreference) {
   document.documentElement.classList.toggle("dark", shouldUseDark);
   document.documentElement.dataset.theme = theme;
   document.documentElement.style.colorScheme = shouldUseDark ? "dark" : "light";
+  document.documentElement.style.backgroundColor = shouldUseDark
+    ? DARK_THEME_BACKGROUND
+    : LIGHT_THEME_BACKGROUND;
 }

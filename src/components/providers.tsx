@@ -6,7 +6,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import {
   applyThemePreference,
-  getStoredThemePreference,
   getStoredUserThemePreference,
   isThemePreference,
   storeThemePreference,
@@ -18,11 +17,9 @@ function ThemeSync() {
 
   useEffect(() => {
     function reapplyThemeForSystemChange() {
-      const userTheme = getStoredUserThemePreference(userId);
-      const theme =
-        status === "authenticated" && userTheme
-          ? userTheme
-          : getStoredThemePreference();
+      if (status !== "authenticated") return;
+
+      const theme = getStoredUserThemePreference(userId);
 
       if (theme === "system") {
         applyThemePreference(theme);
@@ -40,7 +37,7 @@ function ThemeSync() {
     if (status === "loading") return;
 
     if (status === "unauthenticated") {
-      applyThemePreference(getStoredThemePreference());
+      applyThemePreference("dark");
       return;
     }
 

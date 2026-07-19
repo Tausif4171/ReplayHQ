@@ -63,6 +63,10 @@ export function Header({ onMenuToggle }: HeaderProps) {
   const { data: session } = useSession();
   const [searchQuery, setSearchQuery] = useState("");
   const [pendingAccessCount, setPendingAccessCount] = useState(0);
+  const [
+    accessRequestNotificationsEnabled,
+    setAccessRequestNotificationsEnabled,
+  ] = useState(true);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const userName = session?.user?.name || "User";
@@ -94,7 +98,56 @@ export function Header({ onMenuToggle }: HeaderProps) {
   }, []);
 
   useEffect(() => {
-    if (!isAdmin) {
+    if (!session?.user?.id) {
+      setAccessRequestNotificationsEnabled(true);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function fetchNotificationSettings() {
+      try {
+        const response = await fetch("/api/settings");
+        if (!response.ok) return;
+
+        const data = await response.json();
+        if (!cancelled) {
+          setAccessRequestNotificationsEnabled(
+            data.preferences?.notifyAccessRequests ?? true
+          );
+        }
+      } catch {
+        if (!cancelled) {
+          setAccessRequestNotificationsEnabled(true);
+        }
+      }
+    }
+
+    fetchNotificationSettings();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.user?.id]);
+
+  useEffect(() => {
+    function handleSettingsUpdated(event: Event) {
+      const preferences = (event as CustomEvent).detail?.preferences;
+      if (typeof preferences?.notifyAccessRequests === "boolean") {
+        setAccessRequestNotificationsEnabled(preferences.notifyAccessRequests);
+      }
+    }
+
+    window.addEventListener("replayhq:settings-updated", handleSettingsUpdated);
+    return () =>
+      window.removeEventListener(
+        "replayhq:settings-updated",
+        handleSettingsUpdated
+      );
+  }, []);
+
+  useEffect(() => {
+    if (!isAdmin || !accessRequestNotificationsEnabled) {
       setPendingAccessCount(0);
       return;
     }
@@ -117,7 +170,7 @@ export function Header({ onMenuToggle }: HeaderProps) {
     }
 
     fetchPendingAccessCount();
-  }, [isAdmin]);
+  }, [isAdmin, accessRequestNotificationsEnabled]);
 
   function handleSearchSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -226,10 +279,14 @@ export function Header({ onMenuToggle }: HeaderProps) {
                 <Inbox className="mt-0.5 h-4 w-4 text-muted-foreground" />
                 <div className="flex flex-col gap-0.5">
                   <span className="font-medium text-foreground">
-                    No new notifications
+                    {isAdmin && !accessRequestNotificationsEnabled
+                      ? "Access request notifications are off"
+                      : "No new notifications"}
                   </span>
                   <span className="text-xs text-muted-foreground">
-                    Access requests and important updates will appear here.
+                    {isAdmin && !accessRequestNotificationsEnabled
+                      ? "Turn them back on from Settings when needed."
+                      : "Access requests and important updates will appear here."}
                   </span>
                 </div>
               </div>

@@ -44,6 +44,7 @@ model User {
   accounts               Account[]
   sessions               Session[]
   passwordResetTokens    PasswordResetToken[]
+  preference             UserPreference?
   reviewedAccessRequests AccessRequest[]      @relation("AccessRequestReviewer")
   recordings             Recording[]          @relation("presenter")
   uploads                Recording[]          @relation("uploader")
@@ -56,6 +57,16 @@ model User {
 
   @@index([suspendedAt])
   @@index([suspendedById])
+}
+
+model UserPreference {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  theme                 String   @default("dark")
+  notifyAccessRequests  Boolean  @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 }
 
 model PasswordResetToken {

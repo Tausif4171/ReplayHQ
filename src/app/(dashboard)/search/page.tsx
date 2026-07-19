@@ -1,7 +1,15 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import {
+  Suspense,
+  useState,
+  useEffect,
+  useRef,
+  useMemo,
+  useCallback,
+} from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { formatDuration, formatRelativeDate, getInitials } from "@/lib/utils";
 import {
@@ -319,8 +327,10 @@ function ResultCard({ recording, query, showTranscript }: ResultCardProps) {
 // Main page
 // ---------------------------------------------------------------------------
 
-export default function SearchPage() {
-  const [query, setQuery] = useState("");
+function SearchPageContent() {
+  const searchParams = useSearchParams();
+  const urlQuery = searchParams.get("q") || "";
+  const [query, setQuery] = useState(urlQuery);
   const debouncedQuery = useDebounce(query, 300);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -332,6 +342,10 @@ export default function SearchPage() {
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
+
+  useEffect(() => {
+    setQuery(urlQuery);
+  }, [urlQuery]);
 
   // Fetch series for Browse by Series section
   useEffect(() => {
@@ -677,5 +691,19 @@ export default function SearchPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function SearchPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-[40vh] items-center justify-center text-muted-foreground">
+          <Loader2 className="h-5 w-5 animate-spin" />
+        </div>
+      }
+    >
+      <SearchPageContent />
+    </Suspense>
   );
 }

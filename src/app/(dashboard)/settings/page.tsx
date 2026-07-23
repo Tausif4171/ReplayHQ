@@ -49,6 +49,12 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 type UserRole = "ADMIN" | "UPLOADER" | "VIEWER";
 
@@ -655,6 +661,12 @@ function SettingsContent() {
                     ? "Import cloud recordings from the connected Zoom account."
                     : "Zoom imports are available to Uploaders and Admins."}
                 </p>
+                {!canUpload && (
+                  <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Info className="h-3.5 w-3.5" />
+                    Ask an admin to change your role to Uploader before connecting Zoom.
+                  </p>
+                )}
               </div>
 
               <div className="shrink-0">
@@ -676,16 +688,31 @@ function SettingsContent() {
                     ) : null}
                     Disconnect
                   </Button>
-                ) : (
+                ) : canUpload ? (
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={connectZoom}
-                    disabled={!canUpload}
                   >
                     <ExternalLink className="h-4 w-4" />
                     Connect Zoom
                   </Button>
+                ) : (
+                  <TooltipProvider delayDuration={150}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="inline-flex">
+                          <Button variant="outline" size="sm" disabled>
+                            <ExternalLink className="h-4 w-4" />
+                            Connect Zoom
+                          </Button>
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">
+                        Ask an admin to change your role to Uploader.
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 )}
               </div>
             </div>

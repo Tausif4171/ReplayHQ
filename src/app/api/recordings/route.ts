@@ -2,6 +2,9 @@ import { after, NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { enqueueTranscription } from "@/lib/queue";
+import { requireUploaderUser } from "@/lib/access";
+import { ApiError, apiErrorResponse } from "@/lib/api-errors";
+import { isSameOriginRequest } from "@/lib/request";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -83,22 +86,27 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const body = await request.json();
-  const { title, description, seriesId, tags, videoUrl, duration, thumbnailUrl } = body;
-
-  if (!title || !videoUrl) {
-    return NextResponse.json(
-      { error: "Title and videoUrl are required" },
-      { status: 400 }
-    );
-  }
-
   try {
+    if (!isSameOriginRequest(request)) {
+      throw new ApiError(403, "Forbidden");
+    }
+
+    const user = await requireUploaderUser();
+    const body = await request.json();
+    const {
+      title,
+      description,
+      seriesId,
+      tags,
+      videoUrl,
+      duration,
+      thumbnailUrl,
+    } = body;
+
+    if (!title || !videoUrl) {
+      throw new ApiError(400, "Title and videoUrl are required");
+    }
+
     const recording = await prisma.recording.create({
       data: {
         title,
@@ -107,8 +115,8 @@ export async function POST(request: NextRequest) {
         thumbnailUrl: thumbnailUrl || undefined,
         duration,
         status: "READY",
-        uploadedById: session.user.id,
-        presenterId: session.user.id,
+        uploadedById: user.id,
+        presenterId: user.id,
         seriesId: seriesId || undefined,
         tags: tags?.length
           ? {
@@ -142,10 +150,6 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(recording, { status: 201 });
   } catch (error) {
-    console.error("Failed to create recording:", error);
-    return NextResponse.json(
-      { error: "Failed to create recording" },
-      { status: 500 }
-    );
+    return apiErrorResponse(error);
   }
 }

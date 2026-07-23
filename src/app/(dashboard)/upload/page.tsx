@@ -2,8 +2,10 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { useDropzone } from "react-dropzone";
 import { cn } from "@/lib/utils";
+import { canUploadRecordings } from "@/lib/roles";
 import {
   UploadCloud,
   FileVideo,
@@ -24,6 +26,7 @@ import {
   HardDrive,
   RefreshCw,
   ExternalLink,
+  ShieldAlert,
 } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -259,6 +262,45 @@ interface ZoomMeetingSummary {
 }
 
 export default function UploadPage() {
+  const { data: session, status } = useSession();
+
+  if (status === "loading") {
+    return (
+      <div className="flex min-h-[50vh] items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (!canUploadRecordings(session?.user?.role)) {
+    return (
+      <div className="mx-auto flex min-h-[60vh] max-w-xl items-center justify-center">
+        <Card className="w-full">
+          <CardHeader className="space-y-3 text-center">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10">
+              <ShieldAlert className="h-6 w-6 text-primary" />
+            </div>
+            <CardTitle>Uploader access required</CardTitle>
+            <CardDescription>
+              Viewers can watch, search, comment, and save recordings. Ask an
+              admin to change your role to Uploader if you need to publish team
+              recordings.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex justify-center">
+            <Button asChild>
+              <Link href="/recordings">Browse recordings</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  return <UploadExperience />;
+}
+
+function UploadExperience() {
   const router = useRouter();
 
   /* ---- State ---- */

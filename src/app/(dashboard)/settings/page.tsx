@@ -12,6 +12,7 @@ import {
 import { useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { cn, getInitials } from "@/lib/utils";
+import { canUploadRecordings } from "@/lib/roles";
 import {
   applyThemePreference,
   storeThemePreference,
@@ -475,6 +476,7 @@ function SettingsContent() {
   const currentEmail = settings?.user.email || "";
   const currentRole = settings?.user.role || "VIEWER";
   const currentTheme = settings?.preferences.theme || "dark";
+  const canUpload = canUploadRecordings(currentRole);
 
   return (
     <div className="space-y-8">
@@ -649,7 +651,9 @@ function SettingsContent() {
                   )}
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  Import cloud recordings from the connected Zoom account.
+                  {canUpload
+                    ? "Import cloud recordings from the connected Zoom account."
+                    : "Zoom imports are available to Uploaders and Admins."}
                 </p>
               </div>
 
@@ -673,7 +677,12 @@ function SettingsContent() {
                     Disconnect
                   </Button>
                 ) : (
-                  <Button variant="outline" size="sm" onClick={connectZoom}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={connectZoom}
+                    disabled={!canUpload}
+                  >
                     <ExternalLink className="h-4 w-4" />
                     Connect Zoom
                   </Button>

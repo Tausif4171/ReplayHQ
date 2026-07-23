@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { auth } from "@/lib/auth";
+import { requireUploaderUser } from "@/lib/access";
+import { ApiError, apiErrorResponse } from "@/lib/api-errors";
+import { isSameOriginRequest } from "@/lib/request";
 
 export async function GET() {
   const series = await prisma.series.findMany({
@@ -14,20 +16,24 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try {
+    if (!isSameOriginRequest(request)) {
+      throw new ApiError(403, "Forbidden");
+    }
+
+    await requireUploaderUser();
+    const { name, description } = await request.json();
+
+    if (!name?.trim()) {
+      throw new ApiError(400, "Name is required");
+    }
+
+    const series = await prisma.series.create({
+      data: { name: name.trim(), description },
+    });
+
+    return NextResponse.json(series, { status: 201 });
+  } catch (error) {
+    return apiErrorResponse(error);
   }
-
-  const { name, description } = await request.json();
-
-  if (!name?.trim()) {
-    return NextResponse.json({ error: "Name is required" }, { status: 400 });
-  }
-
-  const series = await prisma.series.create({
-    data: { name: name.trim(), description },
-  });
-
-  return NextResponse.json(series, { status: 201 });
 }

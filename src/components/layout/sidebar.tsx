@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { cn } from "@/lib/utils";
+import { canUploadRecordings } from "@/lib/roles";
 import {
   Play,
   LayoutDashboard,
@@ -37,13 +38,17 @@ export function Sidebar({ open, onClose }: SidebarProps) {
   const pathname = usePathname();
   const { data: session } = useSession();
   const [collapsed, setCollapsed] = useState(false);
+  const canUpload = canUploadRecordings(session?.user?.role);
+  const visibleMainNavItems = canUpload
+    ? mainNavItems
+    : mainNavItems.filter((item) => item.href !== "/upload");
   const navItems =
     session?.user?.role === "ADMIN"
       ? [
-          ...mainNavItems,
+          ...visibleMainNavItems,
           { label: "Team access", href: "/settings/admin", icon: ShieldCheck },
         ]
-      : mainNavItems;
+      : visibleMainNavItems;
 
   const isActive = (href: string) => {
     if (href === "/") return pathname === "/";

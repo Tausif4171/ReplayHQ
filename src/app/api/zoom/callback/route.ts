@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { canUploadRecordings } from "@/lib/roles";
 import {
   exchangeCodeForTokens,
   fetchZoomUserProfile,
@@ -26,6 +27,20 @@ export async function GET(request: NextRequest) {
     if (!session?.user?.id || session.user.id !== userId) {
       return NextResponse.redirect(
         new URL("/settings?zoom=error&reason=auth_mismatch", request.url)
+      );
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { role: true, suspendedAt: true },
+    });
+
+    if (!user || user.suspendedAt || !canUploadRecordings(user.role)) {
+      return NextResponse.redirect(
+        new URL(
+          "/settings?zoom=error&reason=upload_access_required",
+          request.url
+        )
       );
     }
 

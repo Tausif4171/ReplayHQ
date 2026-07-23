@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { requireUploaderUser } from "@/lib/access";
+import { apiErrorResponse } from "@/lib/api-errors";
 import { getZoomAccount, listZoomRecordings } from "@/lib/zoom";
 import type { ZoomMeetingSummary, ZoomFileSummary } from "@/lib/zoom";
 
@@ -14,27 +15,24 @@ function todayISO(): string {
 }
 
 export async function GET(request: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const account = await getZoomAccount(session.user.id);
-  if (!account) {
-    return NextResponse.json(
-      { error: "Zoom not connected" },
-      { status: 400 }
-    );
-  }
-
-  const { searchParams } = new URL(request.url);
-  const from = searchParams.get("from") || defaultFromDate();
-  const to = searchParams.get("to") || todayISO();
-  const pageToken = searchParams.get("page_token") || undefined;
-
   try {
+    const user = await requireUploaderUser();
+
+    const account = await getZoomAccount(user.id);
+    if (!account) {
+      return NextResponse.json(
+        { error: "Zoom not connected" },
+        { status: 400 }
+      );
+    }
+
+    const { searchParams } = new URL(request.url);
+    const from = searchParams.get("from") || defaultFromDate();
+    const to = searchParams.get("to") || todayISO();
+    const pageToken = searchParams.get("page_token") || undefined;
+
     const recordings = await listZoomRecordings(
-      session.user.id,
+      user.id,
       from,
       to,
       30,
@@ -71,10 +69,6 @@ export async function GET(request: NextRequest) {
       totalRecords: recordings.total_records,
     });
   } catch (error) {
-    console.error("Failed to fetch Zoom recordings:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch Zoom recordings" },
-      { status: 500 }
-    );
+    return apiErrorResponse(error);
   }
 }

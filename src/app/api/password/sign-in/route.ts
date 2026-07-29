@@ -30,7 +30,15 @@ export async function POST(request: NextRequest) {
   const email = normalizeEmail(parsed.data.email);
   const user = await prisma.user.findFirst({
     where: { email: { equals: email, mode: "insensitive" } },
-    select: { id: true, passwordHash: true, suspendedAt: true },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      image: true,
+      role: true,
+      passwordHash: true,
+      suspendedAt: true,
+    },
   });
 
   if (user?.suspendedAt) {
@@ -70,6 +78,15 @@ export async function POST(request: NextRequest) {
     },
   });
 
-  const response = NextResponse.json({ ok: true });
+  const response = NextResponse.json({
+    ok: true,
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      image: user.image,
+      role: user.role,
+    },
+  });
   return setAuthSessionCookie(response, request.nextUrl, sessionToken, expires);
 }

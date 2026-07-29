@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { signIn } from "next-auth/react";
+import { signIn, useSession } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import {
   AlertCircle,
@@ -49,6 +49,7 @@ type SubmitState = "idle" | "loading" | "success";
 
 export default function LoginPage() {
   const router = useRouter();
+  const { update: updateSession } = useSession();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -128,6 +129,7 @@ export default function LoginPage() {
         throw new Error(data?.error || "Invalid email or password.");
       }
 
+      await updateSession();
       router.replace("/");
       router.refresh();
     } catch (error) {

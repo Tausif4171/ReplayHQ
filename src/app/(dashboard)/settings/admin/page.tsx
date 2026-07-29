@@ -1215,7 +1215,7 @@ function RequestRow({
           </div>
           {request.reviewNote && (
             <p className="mt-2 text-xs text-muted-foreground">
-              Note: {request.reviewNote}
+              Internal note: {request.reviewNote}
             </p>
           )}
         </div>
@@ -1240,10 +1240,14 @@ function RequestRow({
             <textarea
               value={note}
               onChange={(event) => onNoteChange(event.target.value)}
-              placeholder="Review note (optional)"
+              placeholder="Internal note for admins (optional)"
               rows={2}
               className="w-full resize-none rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             />
+            <p className="text-xs text-muted-foreground">
+              Stored with this request for audit. It is not emailed to the
+              requester.
+            </p>
             <div className="grid grid-cols-2 gap-2">
               <Button
                 variant="outline"

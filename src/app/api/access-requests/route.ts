@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
         ].join("\n"),
         html: `
           <div style="font-family: Inter, Arial, sans-serif; color: #111827; line-height: 1.5;">
-            <h2 style="margin: 0 0 12px; font-size: 20px;">New ReplayHQ access request</h2>
+            <h2 style="margin: 0 0 12px; font-size: 20px;">New access request</h2>
             <p style="margin: 0 0 20px;">A new person requested access to ReplayHQ.</p>
             <table style="margin: 0 0 20px; border-collapse: collapse;">
               <tr>
@@ -105,7 +105,7 @@ export async function POST(request: NextRequest) {
               </a>
             </p>
             <p style="margin: 0; color: #6b7280; font-size: 13px;">
-              Or open Team access: <a href="${safeAdminUrl}" style="color: #4f46e5;">${safeAdminUrl}</a>
+              Button not working? Open Team access: <a href="${safeAdminUrl}" style="color: #4f46e5;">${safeAdminUrl}</a>
             </p>
           </div>
         `,

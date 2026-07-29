@@ -59,11 +59,14 @@ export async function sendPasswordInstructions({
   const subject = isSetup
     ? "Set up your ReplayHQ password"
     : "Reset your ReplayHQ password";
+  const heading = isSetup ? "Create your password" : "Reset your password";
+  const buttonLabel = isSetup ? "Set password" : "Reset password";
   const intro = isSetup
     ? "Your ReplayHQ account is ready. Use this secure link to set up your password. It expires in 1 hour."
     : "Use this secure link to reset your ReplayHQ password. It expires in 1 hour.";
   const escapedUrl = escapeHtml(resetUrl);
-  const escapedSubject = escapeHtml(subject);
+  const escapedHeading = escapeHtml(heading);
+  const escapedButtonLabel = escapeHtml(buttonLabel);
   const escapedIntro = escapeHtml(intro);
 
   return sendEmail({
@@ -72,17 +75,17 @@ export async function sendPasswordInstructions({
     text: [
       intro,
       "",
-      `${subject}: ${resetUrl}`,
+      `Open this link: ${resetUrl}`,
       "",
       "If you did not request this, you can ignore this email.",
     ].join("\n"),
     html: `
       <div style="font-family: Inter, Arial, sans-serif; color: #111827; line-height: 1.5;">
-        <h2 style="margin: 0 0 12px; font-size: 20px;">${escapedSubject}</h2>
+        <h2 style="margin: 0 0 12px; font-size: 20px;">${escapedHeading}</h2>
         <p style="margin: 0 0 20px;">${escapedIntro}</p>
         <p style="margin: 0 0 20px;">
           <a href="${escapedUrl}" style="display: inline-block; border-radius: 8px; background: #4f46e5; color: #ffffff; padding: 10px 14px; text-decoration: none; font-weight: 600;">
-            ${escapedSubject}
+            ${escapedButtonLabel}
           </a>
         </p>
         <p style="margin: 0 0 12px; color: #6b7280; font-size: 13px;">

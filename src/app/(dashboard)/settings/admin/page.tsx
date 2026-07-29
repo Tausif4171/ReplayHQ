@@ -185,26 +185,26 @@ function formatDate(value: string | null) {
 
 function getStatusStyles(status: AccessRequestStatus) {
   if (status === "APPROVED") {
-    return "border-emerald-500/30 bg-emerald-500/10 text-emerald-300";
+    return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/10 dark:text-emerald-300";
   }
 
   if (status === "REJECTED") {
-    return "border-destructive/30 bg-destructive/10 text-destructive";
+    return "border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/10";
   }
 
-  return "border-amber-500/30 bg-amber-500/10 text-amber-300";
+  return "border-amber-500/30 bg-amber-500/10 text-amber-700 hover:bg-amber-500/10 dark:text-amber-300";
 }
 
 function getRoleStyles(role: Role) {
   if (role === "ADMIN") {
-    return "border-primary/30 bg-primary/10 text-primary";
+    return "border-primary/30 bg-primary/10 text-primary hover:bg-primary/10";
   }
 
   if (role === "UPLOADER") {
-    return "border-sky-500/30 bg-sky-500/10 text-sky-300";
+    return "border-sky-500/30 bg-sky-500/10 text-sky-700 hover:bg-sky-500/10 dark:text-sky-300";
   }
 
-  return "border-border bg-secondary/60 text-muted-foreground";
+  return "border-border bg-muted text-muted-foreground hover:bg-muted";
 }
 
 export default function AdminSettingsPage() {
@@ -1184,7 +1184,10 @@ function RequestRow({
             <p className="font-medium">
               {request.name || "Unnamed requester"}
             </p>
-            <Badge className={cn("border", getStatusStyles(request.status))}>
+            <Badge
+              variant="outline"
+              className={cn("border", getStatusStyles(request.status))}
+            >
               {request.status.toLowerCase()}
             </Badge>
             {request.existingUser && (
@@ -1274,7 +1277,10 @@ function RequestRow({
           </div>
         ) : (
           <div className="flex min-w-40 flex-col items-start gap-2 lg:items-end">
-            <Badge className={cn("border", getRoleStyles(request.requestedRole))}>
+            <Badge
+              variant="outline"
+              className={cn("border", getRoleStyles(request.requestedRole))}
+            >
               {formatRole(request.requestedRole)}
             </Badge>
             {request.status === "APPROVED" && (
@@ -1345,11 +1351,17 @@ function UserRow({
 
         <div className="grid gap-3 sm:grid-cols-2 xl:w-[560px] xl:grid-cols-[160px_1fr_150px] xl:items-center">
           <div className="flex flex-wrap gap-2">
-            <Badge className={cn("w-fit border", getRoleStyles(user.role))}>
+            <Badge
+              variant="outline"
+              className={cn("w-fit border", getRoleStyles(user.role))}
+            >
               {formatRole(user.role)}
             </Badge>
             {user.isSuspended && (
-              <Badge className="w-fit border border-amber-500/30 bg-amber-500/10 text-amber-300">
+              <Badge
+                variant="outline"
+                className="w-fit border border-amber-500/30 bg-amber-500/10 text-amber-700 hover:bg-amber-500/10 dark:text-amber-300"
+              >
                 Suspended
               </Badge>
             )}

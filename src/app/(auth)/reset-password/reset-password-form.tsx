@@ -21,6 +21,9 @@ export function ResetPasswordForm({ token }: { token: string }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isComplete, setIsComplete] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const isLinkError = Boolean(
+    error?.toLowerCase().includes("password link")
+  );
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -96,7 +99,9 @@ export function ResetPasswordForm({ token }: { token: string }) {
                 <div className="space-y-4">
                   <div className="flex gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                     <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                    <span>This reset link is missing a token.</span>
+                    <span>
+                      This password link is missing required information.
+                    </span>
                   </div>
                   <Button asChild variant="outline" className="w-full">
                     <Link href="/login">Back to sign in</Link>
@@ -169,9 +174,15 @@ export function ResetPasswordForm({ token }: { token: string }) {
                     </div>
                   )}
 
+                  {isLinkError && (
+                    <Button asChild variant="outline" className="w-full">
+                      <Link href="/login">Request a new link</Link>
+                    </Button>
+                  )}
+
                   <Button
                     type="submit"
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || isLinkError}
                     className="w-full"
                     size="lg"
                   >

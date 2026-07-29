@@ -45,7 +45,10 @@ export async function POST(request: NextRequest) {
 
   if (!resetToken) {
     return NextResponse.json(
-      { error: "This reset link is invalid or expired." },
+      {
+        error:
+          "This password link has expired or has already been used. Please request a new link from the sign-in page.",
+      },
       { status: 400 }
     );
   }
